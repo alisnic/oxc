@@ -69,6 +69,7 @@ fn is_hook_call(node: &AstNode) -> bool {
     true
 }
 
+// TODO: check if first argument is a function?
 fn try_get_hook_call(call_expr: &CallExpression) -> Option<String> {
     let Some(callback) = func_call_without_react_namespace(call_expr) else { return None };
 
@@ -76,6 +77,7 @@ fn try_get_hook_call(call_expr: &CallExpression) -> Option<String> {
     None
 }
 
+// TODO: return atom instead of string
 fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<String> {
     let inner_exp = call_expr.callee.get_inner_expression();
 
