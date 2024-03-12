@@ -1,5 +1,8 @@
 use oxc_ast::{
-    ast::{CallExpression, Expression, MemberExpression, StaticMemberExpression},
+    ast::{
+        Argument, ArrayExpression, ArrowFunctionExpression, CallExpression, Expression,
+        MemberExpression,
+    },
     AstKind,
 };
 use oxc_diagnostics::{
@@ -8,6 +11,7 @@ use oxc_diagnostics::{
 };
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
+use phf::phf_set;
 
 use crate::{context::LintContext, rule::Rule, AstNode};
 
@@ -36,7 +40,7 @@ declare_oxc_lint!(
 impl Rule for ExhaustiveDeps {
     fn run_once(&self, ctx: &LintContext) {
         ctx.semantic().nodes().iter().for_each(|node| {
-            if is_hook_call(node) {
+            if let Some(hook) = try_get_hook_call(node) {
                 // dbg!(ctx.semantic().scopes());
             }
         });
@@ -57,23 +61,35 @@ impl Rule for ExhaustiveDeps {
 //     name: string,
 // }
 
-fn is_hook_call(node: &AstNode) -> bool {
-    let AstKind::CallExpression(call_expr) = node.kind() else { return false };
-    let Some(hook_name) = try_get_hook_call(call_expr) else { return false };
-    // let func_arg = &call_expr.arguments[0];
-
-    // dbg!(func_arg);
-    // TODO: getNodeWithoutReactNamespace
-    // TODO: useImperativeHandle
-    // println!("function name {:?}", ident.name);
-    true
+struct ReactHookCall<'a> {
+    name: String,
+    body: ArrowFunctionExpression<'a>,
+    deps: ArrayExpression<'a>,
 }
 
+const HOOKS: phf::Set<&'static str> =
+    phf_set!("useEffect", "useLayoutEffect", "useCallback", "useMemo");
+
 // TODO: check if first argument is a function?
-fn try_get_hook_call(call_expr: &CallExpression) -> Option<String> {
+fn try_get_hook_call<'a>(node: &'a AstNode) -> Option<ReactHookCall<'a>> {
+    let AstKind::CallExpression(call_expr) = node.kind() else { return None };
     let Some(callback) = func_call_without_react_namespace(call_expr) else { return None };
 
     println!("hook name {callback}");
+    dbg!(call_expr);
+
+    if HOOKS.contains(&callback) {
+        let Argument::Expression(arg0_expr) = call_expr.arguments[0] else { return None };
+        let Argument::Expression(arg1_expr) = call_expr.arguments[1] else { return None };
+        let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return None };
+
+        return Some(ReactHookCall {
+            name: callback,
+            body: body_expr,
+            deps: call_expr.arguments[1],
+        });
+    }
+
     None
 }
 
@@ -115,10 +131,6 @@ fn test() {
         // }",
         r"function MyComponent(props) {
             React.useCallback(() => {
-              console.log(props.foo?.toString());
-            }, [props.foo]);
-
-            useEffect(() => {
               console.log(props.foo?.toString());
             }, [props.foo]);
           }",
