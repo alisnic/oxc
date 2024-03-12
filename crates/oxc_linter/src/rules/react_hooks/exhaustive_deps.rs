@@ -60,7 +60,6 @@ impl Rule for ExhaustiveDeps {
 fn is_hook_call(node: &AstNode) -> bool {
     let AstKind::CallExpression(call_expr) = node.kind() else { return false };
     let Some(hook_name) = try_get_hook_call(call_expr) else { return false };
-    println!("hook name {hook_name}");
     // let func_arg = &call_expr.arguments[0];
 
     // dbg!(func_arg);
@@ -70,10 +69,10 @@ fn is_hook_call(node: &AstNode) -> bool {
     true
 }
 
-
 fn try_get_hook_call(call_expr: &CallExpression) -> Option<String> {
-    let Some(callback) = func_call_without_react_namespace(call_expr) else { return None }
+    let Some(callback) = func_call_without_react_namespace(call_expr) else { return None };
 
+    println!("hook name {callback}");
     None
 }
 
@@ -114,6 +113,10 @@ fn test() {
         // }",
         r"function MyComponent(props) {
             React.useCallback(() => {
+              console.log(props.foo?.toString());
+            }, [props.foo]);
+
+            useEffect(() => {
               console.log(props.foo?.toString());
             }, [props.foo]);
           }",
