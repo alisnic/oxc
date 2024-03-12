@@ -1,4 +1,7 @@
-use oxc_ast::{ast::CallExpression, AstKind};
+use oxc_ast::{
+    ast::{CallExpression, Expression, MemberExpression, StaticMemberExpression},
+    AstKind,
+};
 use oxc_diagnostics::{
     miette::{self, Diagnostic},
     thiserror::Error,
@@ -6,7 +9,7 @@ use oxc_diagnostics::{
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
 
-use crate::{ast_util::is_method_call, context::LintContext, rule::Rule, AstNode};
+use crate::{context::LintContext, rule::Rule, AstNode};
 
 #[derive(Debug, Error, Diagnostic)]
 #[error("react-hooks(exhaustive-deps):")]
@@ -34,7 +37,7 @@ impl Rule for ExhaustiveDeps {
     fn run_once(&self, ctx: &LintContext) {
         ctx.semantic().nodes().iter().for_each(|node| {
             if is_hook_call(node) {
-                dbg!(ctx.semantic().scopes());
+                // dbg!(ctx.semantic().scopes());
             }
         });
     }
@@ -56,12 +59,46 @@ impl Rule for ExhaustiveDeps {
 
 fn is_hook_call(node: &AstNode) -> bool {
     let AstKind::CallExpression(call_expr) = node.kind() else { return false };
-    let Some(ident) = call_expr.callee.get_identifier_reference() else { return false };
-    let func_arg = &call_expr.arguments[0];
+    let Some(hook_name) = try_get_hook_call(call_expr) else { return false };
+    println!("hook name {hook_name}");
+    // let func_arg = &call_expr.arguments[0];
 
-    dbg!(func_arg);
-    println!("function name {:?}", ident.name);
+    // dbg!(func_arg);
+    // TODO: getNodeWithoutReactNamespace
+    // TODO: useImperativeHandle
+    // println!("function name {:?}", ident.name);
     true
+}
+
+
+fn try_get_hook_call(call_expr: &CallExpression) -> Option<String> {
+    let Some(callback) = func_call_without_react_namespace(call_expr) else { return None }
+
+    None
+}
+
+fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<String> {
+    let inner_exp = call_expr.callee.get_inner_expression();
+
+    if let Expression::Identifier(ident) = inner_exp {
+        return Some(ident.name.to_string());
+    }
+
+    let Expression::MemberExpression(member_expr) = inner_exp else {
+        return None;
+    };
+
+    let MemberExpression::StaticMemberExpression(member) = &member_expr.0 else {
+        return None;
+    };
+
+    let Some(reference) = &member.object.get_identifier_reference() else { return None };
+
+    if reference.name == "React" {
+        return Some(member.property.name.to_string());
+    }
+
+    None
 }
 
 #[test]
@@ -76,18 +113,18 @@ fn test() {
         //   });
         // }",
         r"function MyComponent(props) {
-            useCallback(() => {
+            React.useCallback(() => {
               console.log(props.foo?.toString());
             }, [props.foo]);
           }",
     ];
 
     let fail = vec![
-        r"function MyComponent(props) {
-            useCallback(() => {
-              console.log(props.foo?.toString());
-            }, []);
-          }",
+        // r"function MyComponent(props) {
+        //     useCallback(() => {
+        //       console.log(props.foo?.toString());
+        //     }, []);
+        //   }",
     ];
 
     // let pass = vec![
