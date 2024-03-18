@@ -1,3 +1,4 @@
+use oxc_allocator::Box as OxBox;
 use oxc_ast::{
     ast::{
         Argument, ArrayExpression, ArrowFunctionExpression, CallExpression, Expression,
@@ -12,7 +13,6 @@ use oxc_diagnostics::{
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
 use phf::phf_set;
-use oxc_allocator::Box;
 
 use crate::{context::LintContext, rule::Rule, AstNode};
 
@@ -38,13 +38,34 @@ declare_oxc_lint!(
     correctness
 );
 
+const HOOKS: phf::Set<&'static str> =
+    phf_set!("useEffect", "useLayoutEffect", "useCallback", "useMemo");
+
 impl Rule for ExhaustiveDeps {
-    fn run_once(&self, ctx: &LintContext) {
-        ctx.semantic().nodes().iter().for_each(|node| {
-            if let Some(hook) = try_get_hook_call(node) {
-                // dbg!(ctx.semantic().scopes());
-            }
-        });
+    // fn run_once(&self, ctx: &LintContext) {
+    //     ctx.semantic().nodes().iter().for_each(|node| {
+    //         if let Some(hook) = try_get_hook_call(node) {
+    //             dbg!(hook.name);
+    //         }
+    //     });
+    // }
+
+    fn run<'a>(&self, node: &AstNode<'a>, _ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else { return };
+        let Some(callback) = func_call_without_react_namespace(call_expr) else { return };
+
+        if HOOKS.contains(&callback) {
+            let Some(Argument::Expression(arg0_expr)) = call_expr.arguments.get(0) else { return };
+            // TODO: check what to do with no deps
+            let Some(Argument::Expression(arg1_expr)) = call_expr.arguments.get(1) else { return };
+            let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return };
+            let Expression::ArrayExpression(array_expr) = arg1_expr else {
+                return;
+            };
+
+            println!("lint {callback}");
+            dbg!(body_expr.body.statements);
+        }
     }
 }
 
@@ -61,38 +82,6 @@ impl Rule for ExhaustiveDeps {
 // struct ReactHookCall {
 //     name: string,
 // }
-
-struct ReactHookCall<'a> {
-    name: String,
-    body: Box<ArrowFunctionExpression<'a>>,
-    deps: ArrayExpression<'a>,
-}
-
-const HOOKS: phf::Set<&'static str> =
-    phf_set!("useEffect", "useLayoutEffect", "useCallback", "useMemo");
-
-// TODO: check if first argument is a function?
-fn try_get_hook_call<'a>(node: &'a AstNode) -> Option<ReactHookCall<'a>> {
-    let AstKind::CallExpression(call_expr) = node.kind() else { return None };
-    let Some(callback) = func_call_without_react_namespace(call_expr) else { return None };
-
-    println!("hook name {callback}");
-    dbg!(call_expr);
-
-    if HOOKS.contains(&callback) {
-        let Argument::Expression(arg0_expr) = call_expr.arguments[0] else { return None };
-        let Argument::Expression(arg1_expr) = call_expr.arguments[1] else { return None };
-        let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return None };
-
-        return Some(ReactHookCall {
-            name: callback,
-            body: body_expr,
-            deps: call_expr.arguments[1],
-        });
-    }
-
-    None
-}
 
 // TODO: return atom instead of string
 fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<String> {
@@ -124,12 +113,12 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        // r"function MyComponent() {
-        //   const local = {};
-        //   useEffect(() => {
-        //     console.log(local);
-        //   });
-        // }",
+        r"function MyComponent() {
+          const local = {};
+          useEffect(() => {
+            console.log(local);
+          });
+        }",
         r"function MyComponent(props) {
             React.useCallback(() => {
               console.log(props.foo?.toString());
