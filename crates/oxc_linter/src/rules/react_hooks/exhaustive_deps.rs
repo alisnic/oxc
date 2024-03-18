@@ -50,7 +50,7 @@ impl Rule for ExhaustiveDeps {
     //     });
     // }
 
-    fn run<'a>(&self, node: &AstNode<'a>, _ctx: &LintContext<'a>) {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let AstKind::CallExpression(call_expr) = node.kind() else { return };
         let Some(callback) = func_call_without_react_namespace(call_expr) else { return };
 
@@ -63,8 +63,10 @@ impl Rule for ExhaustiveDeps {
                 return;
             };
 
+            let body_expr = &body_expr.body;
+
             println!("lint {callback}");
-            dbg!(body_expr.body.statements);
+            dbg!(&body_expr.statements);
         }
     }
 }
