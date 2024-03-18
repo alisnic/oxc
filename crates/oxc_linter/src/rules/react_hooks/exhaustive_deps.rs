@@ -12,6 +12,7 @@ use oxc_diagnostics::{
 use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
 use phf::phf_set;
+use oxc_allocator::Box;
 
 use crate::{context::LintContext, rule::Rule, AstNode};
 
@@ -63,7 +64,7 @@ impl Rule for ExhaustiveDeps {
 
 struct ReactHookCall<'a> {
     name: String,
-    body: ArrowFunctionExpression<'a>,
+    body: Box<ArrowFunctionExpression<'a>>,
     deps: ArrayExpression<'a>,
 }
 
