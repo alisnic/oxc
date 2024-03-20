@@ -72,13 +72,13 @@ impl Rule for ExhaustiveDeps {
             let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return };
 
             let deps = collect_dependencies(call_expr.arguments.get(1), ctx);
-            dbg!(deps);
+            // dbg!(deps);
 
             let body_expr = &body_expr.body;
 
             println!("lint {callback}");
             for stmt in &body_expr.statements {
-                check_statement(stmt, ctx);
+                check_statement(stmt, ctx, &deps);
             }
             // dbg!(&body_expr.statements);
         }
@@ -87,7 +87,7 @@ impl Rule for ExhaustiveDeps {
     }
 }
 
-fn collect_dependencies(deps: Option<&Argument>, ctx: &LintContext) -> Vec<ReferenceId> {
+fn collect_dependencies(deps: Option<&Argument>, _ctx: &LintContext) -> Vec<ReferenceId> {
     if deps.is_none() {
         return Vec::new();
     }
@@ -121,10 +121,10 @@ fn collect_dependencies(deps: Option<&Argument>, ctx: &LintContext) -> Vec<Refer
     return result;
 }
 
-fn check_statement(statement: &Statement, ctx: &LintContext) {
+fn check_statement(statement: &Statement, ctx: &LintContext, deps: &Vec<ReferenceId>) {
     match statement {
         Statement::ExpressionStatement(expr) => {
-            check_expression(&expr.expression, ctx);
+            check_expression(&expr.expression, ctx, deps);
         }
         _ => {
             println!("don't know what to do now");
@@ -133,14 +133,14 @@ fn check_statement(statement: &Statement, ctx: &LintContext) {
     }
 }
 
-fn check_expression(expression: &Expression, ctx: &LintContext) {
+fn check_expression(expression: &Expression, ctx: &LintContext, deps: &Vec<ReferenceId>) {
     match expression {
         Expression::CallExpression(call_expr) => {
-            check_expression(&call_expr.callee, ctx);
+            check_expression(&call_expr.callee, ctx, deps);
 
             for arg in &call_expr.arguments {
                 match arg {
-                    Argument::Expression(expr) => check_expression(&expr, ctx),
+                    Argument::Expression(expr) => check_expression(&expr, ctx, deps),
                     _ => {
                         println!("TODO");
                         dbg!(arg);
@@ -179,10 +179,14 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
                 return;
             }
 
-            println!("\thi there!");
+            if !deps.iter().any(|&ref_id| ref_id == reference_id) {
+                dbg!(deps);
+                dbg!(reference_id);
+                println!("\thi there!");
+            }
         }
         Expression::MemberExpression(member_expr) => {
-            check_expression(member_expr.object(), ctx);
+            check_expression(member_expr.object(), ctx, deps);
         }
         _ => {
             println!("ACHTUNG: don't know what to do now");
