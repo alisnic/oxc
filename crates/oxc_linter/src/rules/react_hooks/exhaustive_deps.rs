@@ -1,7 +1,7 @@
 use oxc_ast::{
     ast::{
-        Argument, ArrayExpression, ArrowFunctionExpression, CallExpression, Expression,
-        MemberExpression, Statement,
+        Argument, CallExpression, Expression, MemberExpression, Statement, VariableDeclaration,
+        VariableDeclarationKind,
     },
     AstKind,
 };
@@ -92,8 +92,6 @@ fn check_statement(statement: &Statement, ctx: &LintContext) {
     match statement {
         Statement::ExpressionStatement(expr) => {
             check_expression(&expr.expression, ctx);
-            // println!("expression");
-            // dbg!(expr);
         }
         _ => {
             println!("don't know what to do now");
@@ -132,6 +130,11 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
                 return;
             };
 
+            if is_stable_value(declaration) {
+                println!("\tis stable value, all good");
+                return;
+            }
+
             let Some(reference_id) = ident.reference_id.get() else {
                 return;
             };
@@ -150,6 +153,12 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
             dbg!(expression);
         }
     }
+}
+
+fn is_stable_value(node: &AstNode) -> bool {
+    let AstKind::VariableDeclaration(declaration) = node.kind() else { return true };
+
+    return declaration.kind == VariableDeclarationKind::Const;
 }
 
 // TODO: register vars in component scope?
