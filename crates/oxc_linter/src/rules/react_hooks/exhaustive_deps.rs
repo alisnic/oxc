@@ -119,6 +119,7 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
             // check callee
             // check arguments
         }
+        // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
             println!("check: {}", ident.name);
 
