@@ -120,13 +120,26 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
             // check arguments
         }
         Expression::Identifier(ident) => {
+            println!("check: {}", ident.name);
+
             if ctx.semantic().is_reference_to_global_variable(ident) {
-                println!("check {}: is a global variable, all good", ident.name);
+                println!("\tis a global variable, all good");
                 return;
             }
 
-            println!("need to check {}", ident.name);
-            dbg!(get_declaration_of_variable(ident, ctx));
+            let Some(declaration) = get_declaration_of_variable(ident, ctx) else {
+                return;
+            };
+
+            let Some(reference_id) = ident.reference_id.get() else {
+                return;
+            };
+            let reference = ctx.semantic().symbols().get_reference(reference_id);
+            let node = ctx.semantic().nodes().get_node(reference.node_id());
+
+            if declaration.scope_id() == node.scope_id() {
+                println!("\tis declared in the same scope, all good");
+            }
         }
         Expression::MemberExpression(member_expr) => {
             check_expression(member_expr.object(), ctx);
@@ -185,12 +198,13 @@ fn test() {
         r"function MyComponent() {
           const local = {};
           useEffect(() => {
-            console.log(local);
+            const sameScope = true
+            console.log(local, sameScope);
           }, []);
         }",
         // r"function MyComponent(props) {
         //     React.useCallback(() => {
-        //       console.log(props.foo?.toString());
+        //       console.log(props.foo);
         //     }, [props.foo]);
         //   }",
     ];
