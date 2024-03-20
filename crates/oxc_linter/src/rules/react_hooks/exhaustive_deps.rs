@@ -1,7 +1,7 @@
 use oxc_ast::{
     ast::{
-        Argument, CallExpression, Expression, MemberExpression, Statement, VariableDeclaration,
-        VariableDeclarationKind,
+        Argument, ArrayExpressionElement, CallExpression, Expression, MemberExpression, Statement,
+        VariableDeclaration, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -10,6 +10,7 @@ use oxc_diagnostics::{
     thiserror::Error,
 };
 use oxc_macros::declare_oxc_lint;
+use oxc_semantic::ReferenceId;
 use oxc_span::Span;
 use phf::phf_set;
 
@@ -68,12 +69,10 @@ impl Rule for ExhaustiveDeps {
 
         if HOOKS.contains(&callback) {
             let Some(Argument::Expression(arg0_expr)) = call_expr.arguments.get(0) else { return };
-            // TODO: check what to do with no deps
-            let Some(Argument::Expression(arg1_expr)) = call_expr.arguments.get(1) else { return };
             let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return };
-            let Expression::ArrayExpression(array_expr) = arg1_expr else {
-                return;
-            };
+
+            let deps = collect_dependencies(call_expr.arguments.get(1), ctx);
+            dbg!(deps);
 
             let body_expr = &body_expr.body;
 
@@ -86,6 +85,40 @@ impl Rule for ExhaustiveDeps {
 
         // TODO: useImperativeHandle
     }
+}
+
+fn collect_dependencies(deps: Option<&Argument>, ctx: &LintContext) -> Vec<ReferenceId> {
+    if deps.is_none() {
+        return Vec::new();
+    }
+
+    // TODO: check what to do with no deps
+    let Some(Argument::Expression(arg1_expr)) = deps else { return Vec::new() };
+
+    let Expression::ArrayExpression(array_expr) = arg1_expr else {
+        return Vec::new();
+    };
+
+    let mut result: Vec<ReferenceId> = Vec::new();
+
+    for elem in &array_expr.elements {
+        match elem {
+            ArrayExpressionElement::Expression(expr) => {
+                if let Expression::Identifier(ident) = expr {
+                    if let Some(reference_id) = ident.reference_id.get() {
+                        result.push(reference_id)
+                    }
+                }
+            }
+            _ => {
+                println!("TODO");
+                dbg!(elem);
+            }
+        }
+    }
+
+    dbg!(array_expr);
+    return result;
 }
 
 fn check_statement(statement: &Statement, ctx: &LintContext) {
@@ -215,10 +248,10 @@ fn test() {
         //     console.log(local, sameScope);
         //   }, []);
         // }",
-        r"function MyComponent(props) {
+        r"function MyComponent({ foo } = props) {
             React.useCallback(() => {
-              console.log(props.foo);
-            }, [props.foo]);
+              console.log(foo);
+            }, [foo]);
           }",
     ];
 
