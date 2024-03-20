@@ -13,7 +13,7 @@ use oxc_macros::declare_oxc_lint;
 use oxc_span::Span;
 use phf::phf_set;
 
-use crate::{context::LintContext, rule::Rule, AstNode};
+use crate::{ast_util::get_declaration_of_variable, context::LintContext, rule::Rule, AstNode};
 
 #[derive(Debug, Error, Diagnostic)]
 #[error("react-hooks(exhaustive-deps):")]
@@ -79,7 +79,7 @@ impl Rule for ExhaustiveDeps {
 
             println!("lint {callback}");
             for stmt in &body_expr.statements {
-                check_statement(stmt);
+                check_statement(stmt, ctx);
             }
             // dbg!(&body_expr.statements);
         }
@@ -88,10 +88,10 @@ impl Rule for ExhaustiveDeps {
     }
 }
 
-fn check_statement(statement: &Statement) {
+fn check_statement(statement: &Statement, ctx: &LintContext) {
     match statement {
         Statement::ExpressionStatement(expr) => {
-            check_expression(&expr.expression);
+            check_expression(&expr.expression, ctx);
             // println!("expression");
             // dbg!(expr);
         }
@@ -102,14 +102,14 @@ fn check_statement(statement: &Statement) {
     }
 }
 
-fn check_expression(expression: &Expression) {
+fn check_expression(expression: &Expression, ctx: &LintContext) {
     match expression {
         Expression::CallExpression(call_expr) => {
-            check_expression(&call_expr.callee);
+            check_expression(&call_expr.callee, ctx);
 
             for arg in &call_expr.arguments {
                 match arg {
-                    Argument::Expression(expr) => check_expression(&expr),
+                    Argument::Expression(expr) => check_expression(&expr, ctx),
                     _ => {
                         println!("TODO");
                         dbg!(arg);
@@ -120,11 +120,16 @@ fn check_expression(expression: &Expression) {
             // check arguments
         }
         Expression::Identifier(ident) => {
+            if ctx.semantic().is_reference_to_global_variable(ident) {
+                println!("check {}: is a global variable, all good", ident.name);
+                return;
+            }
+
             println!("need to check {}", ident.name);
-            // dbg!(&ident.reference_id);
+            dbg!(get_declaration_of_variable(ident, ctx));
         }
         Expression::MemberExpression(member_expr) => {
-            check_expression(member_expr.object());
+            check_expression(member_expr.object(), ctx);
         }
         _ => {
             println!("ACHTUNG: don't know what to do now");
