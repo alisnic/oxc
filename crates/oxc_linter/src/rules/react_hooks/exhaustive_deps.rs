@@ -143,7 +143,10 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
 
             if declaration.scope_id() == node.scope_id() {
                 println!("\tis declared in the same scope, all good");
+                return;
             }
+
+            println!("\thi there!");
         }
         Expression::MemberExpression(member_expr) => {
             check_expression(member_expr.object(), ctx);
@@ -156,24 +159,24 @@ fn check_expression(expression: &Expression, ctx: &LintContext) {
 }
 
 fn is_stable_value(node: &AstNode) -> bool {
-    let AstKind::VariableDeclaration(declaration) = node.kind() else { return true };
+    match node.kind() {
+        AstKind::VariableDeclaration(declaration) => {
+            if declaration.kind == VariableDeclarationKind::Const {
+                return true;
+            }
 
-    return declaration.kind == VariableDeclarationKind::Const;
+            println!("TODO");
+            dbg!(declaration);
+            return false;
+        }
+        AstKind::FormalParameter(_) => return false,
+        _ => {
+            dbg!(node);
+            println!("help!");
+            return false;
+        }
+    }
 }
-
-// TODO: register vars in component scope?
-// TODO: how to detect whether a func is a component?
-// for each var access in hook, check if access is either:
-// - valid (ref, const, etc)
-// - listed as a dependency in dependencies array
-
-// Check the declared dependencies for this reactive hook. If there is no
-// second argument then the reactive callback will re-run on every render.
-// So no need to check for dependency inclusion.
-
-// struct ReactHookCall {
-//     name: string,
-// }
 
 // TODO: return atom instead of string
 fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<String> {
@@ -205,18 +208,18 @@ fn test() {
     use crate::tester::Tester;
 
     let pass = vec![
-        r"function MyComponent() {
-          const local = {};
-          useEffect(() => {
-            const sameScope = true
-            console.log(local, sameScope);
-          }, []);
-        }",
-        // r"function MyComponent(props) {
-        //     React.useCallback(() => {
-        //       console.log(props.foo);
-        //     }, [props.foo]);
-        //   }",
+        // r"function MyComponent() {
+        //   const local = {};
+        //   useEffect(() => {
+        //     const sameScope = true
+        //     console.log(local, sameScope);
+        //   }, []);
+        // }",
+        r"function MyComponent(props) {
+            React.useCallback(() => {
+              console.log(props.foo);
+            }, [props.foo]);
+          }",
     ];
 
     let fail = vec![
