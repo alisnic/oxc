@@ -1,8 +1,7 @@
-use oxc_allocator::Box as OxBox;
 use oxc_ast::{
     ast::{
         Argument, ArrayExpression, ArrowFunctionExpression, CallExpression, Expression,
-        MemberExpression,
+        MemberExpression, Statement,
     },
     AstKind,
 };
@@ -50,6 +49,19 @@ impl Rule for ExhaustiveDeps {
     //     });
     // }
 
+    // fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+    //     let AstKind::IdentifierReference(reference) = node.kind() else { return };
+
+    // get parent
+    //
+    // let Some(parent) = ctx.nodes().parent_node(node.id()) else {
+    //     return;
+    // };
+    //
+    // dbg!(reference, node.scope_id());
+    // dbg!(ctx.semantic().scopes().get_bindings(node.scope_id()));
+    // }
+
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let AstKind::CallExpression(call_expr) = node.kind() else { return };
         let Some(callback) = func_call_without_react_namespace(call_expr) else { return };
@@ -66,7 +78,57 @@ impl Rule for ExhaustiveDeps {
             let body_expr = &body_expr.body;
 
             println!("lint {callback}");
-            dbg!(&body_expr.statements);
+            for stmt in &body_expr.statements {
+                check_statement(stmt);
+            }
+            // dbg!(&body_expr.statements);
+        }
+
+        // TODO: useImperativeHandle
+    }
+}
+
+fn check_statement(statement: &Statement) {
+    match statement {
+        Statement::ExpressionStatement(expr) => {
+            check_expression(&expr.expression);
+            // println!("expression");
+            // dbg!(expr);
+        }
+        _ => {
+            println!("don't know what to do now");
+            dbg!(statement);
+        }
+    }
+}
+
+fn check_expression(expression: &Expression) {
+    match expression {
+        Expression::CallExpression(call_expr) => {
+            check_expression(&call_expr.callee);
+
+            for arg in &call_expr.arguments {
+                match arg {
+                    Argument::Expression(expr) => check_expression(&expr),
+                    _ => {
+                        println!("TODO");
+                        dbg!(arg);
+                    }
+                }
+            }
+            // check callee
+            // check arguments
+        }
+        Expression::Identifier(ident) => {
+            println!("need to check {}", ident.name);
+            // dbg!(&ident.reference_id);
+        }
+        Expression::MemberExpression(member_expr) => {
+            check_expression(member_expr.object());
+        }
+        _ => {
+            println!("ACHTUNG: don't know what to do now");
+            dbg!(expression);
         }
     }
 }
@@ -119,13 +181,13 @@ fn test() {
           const local = {};
           useEffect(() => {
             console.log(local);
-          });
+          }, []);
         }",
-        r"function MyComponent(props) {
-            React.useCallback(() => {
-              console.log(props.foo?.toString());
-            }, [props.foo]);
-          }",
+        // r"function MyComponent(props) {
+        //     React.useCallback(() => {
+        //       console.log(props.foo?.toString());
+        //     }, [props.foo]);
+        //   }",
     ];
 
     let fail = vec![
