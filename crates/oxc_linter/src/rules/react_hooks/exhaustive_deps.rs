@@ -1,10 +1,11 @@
 use miette::diagnostic;
+use oxc_allocator::Box as OBox;
 use std::collections::HashSet;
 
 use oxc_ast::{
     ast::{
-        Argument, ArrayExpressionElement, BindingPatternKind, CallExpression, Expression,
-        IdentifierReference, MemberExpression, Statement, VariableDeclarationKind,
+        Argument, ArrayExpressionElement, BindingPatternKind, CallExpression, ChainElement,
+        Expression, IdentifierReference, MemberExpression, Statement, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -126,18 +127,27 @@ fn collect_dependencies(deps: &Argument, _ctx: &LintContext) -> HashSet<String> 
 fn analyze_property_chain(expr: &Expression<'_>) -> Option<String> {
     match expr {
         Expression::Identifier(ident) => return Some(ident.name.to_string()),
-        Expression::MemberExpression(member_expr) => {
-            return Some(format!(
-                "{}.{}",
-                analyze_property_chain(member_expr.object())?,
-                member_expr.static_property_name()?
-            ));
-        }
+        Expression::MemberExpression(member_expr) => member_expr_to_string(member_expr),
+        Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
+            ChainElement::MemberExpression(member_expr) => member_expr_to_string(member_expr),
+            _ => {
+                println!("TODO(analyze_property_chain) {:?}", expr);
+                return None;
+            }
+        },
         _ => {
             println!("TODO(analyze_property_chain) {:?}", expr);
             return None;
         }
     }
+}
+
+fn member_expr_to_string(member_expr: &OBox<'_, MemberExpression<'_>>) -> Option<String> {
+    return Some(format!(
+        "{}.{}",
+        analyze_property_chain(member_expr.object())?,
+        member_expr.static_property_name()?
+    ));
 }
 
 fn check_statement(statement: &Statement, ctx: &LintContext, deps: &mut HashSet<String>) {
@@ -153,21 +163,11 @@ fn check_statement(statement: &Statement, ctx: &LintContext, deps: &mut HashSet<
 }
 
 fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashSet<String>) {
+    // dbg!(expression);
+
     match expression {
         Expression::CallExpression(call_expr) => {
-            check_expression(&call_expr.callee, ctx, deps);
-
-            for arg in &call_expr.arguments {
-                match arg {
-                    Argument::Expression(expr) => check_expression(&expr, ctx, deps),
-                    _ => {
-                        println!("TODO(check_expression)");
-                        dbg!(arg);
-                    }
-                }
-            }
-            // check callee
-            // check arguments
+            check_call_expression(call_expr, ctx, deps);
         }
         // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
@@ -176,19 +176,14 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
             }
         }
         Expression::MemberExpression(member_expr) => {
-            let object = member_expr.object();
-            let Expression::Identifier(ident) = object else {
-                return;
-            };
-
-            if !is_identifier_a_dependency(ident, ctx) {
-                return;
-            }
-
-            if let Some(dependency) = analyze_property_chain(expression) {
-                deps.insert(dependency);
-            };
+            check_member_expression(member_expr, ctx, deps)
         }
+        Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
+            ChainElement::CallExpression(call_expr) => check_call_expression(call_expr, ctx, deps),
+            ChainElement::MemberExpression(member_expr) => {
+                check_member_expression(member_expr, ctx, deps)
+            }
+        },
         Expression::ArrayExpression(ary_expr) => {
             for elem in &ary_expr.elements {
                 match elem {
@@ -208,8 +203,50 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
     }
 }
 
+fn check_call_expression(
+    call_expr: &OBox<'_, CallExpression<'_>>,
+    ctx: &LintContext<'_>,
+    deps: &mut HashSet<String>,
+) {
+    check_expression(&call_expr.callee, ctx, deps);
+
+    for arg in &call_expr.arguments {
+        match arg {
+            Argument::Expression(expr) => check_expression(&expr, ctx, deps),
+            _ => {
+                println!("TODO(check_expression)");
+                dbg!(arg);
+            }
+        }
+    }
+}
+
+fn check_member_expression(
+    member_expr: &OBox<'_, MemberExpression<'_>>,
+    ctx: &LintContext,
+    deps: &mut HashSet<String>,
+) {
+    let mut object = member_expr.object();
+
+    while let Expression::MemberExpression(expr) = object {
+        object = expr.object();
+    }
+
+    let Expression::Identifier(ident) = object else {
+        return;
+    };
+
+    if !is_identifier_a_dependency(ident, ctx) {
+        return;
+    }
+
+    if let Some(dependency) = member_expr_to_string(member_expr) {
+        deps.insert(dependency);
+    };
+}
+
 fn is_identifier_a_dependency(
-    ident: &oxc_allocator::Box<'_, IdentifierReference<'_>>,
+    ident: &OBox<'_, IdentifierReference<'_>>,
     ctx: &LintContext,
 ) -> bool {
     if ctx.semantic().is_reference_to_global_variable(ident) {
@@ -1273,7 +1310,17 @@ fn test() {
         }",
     ];
 
+    // let pass_tmp = vec![];
+
     let fail = vec![
+        r"function MyComponent(props) {
+      useCallback(() => {
+        console.log(props.foo?.toString());
+      }, []);
+    }",
+    ];
+
+    let fail2 = vec![
         r"function MyComponent(props) {
           useCallback(() => {
             console.log(props.foo?.toString());
