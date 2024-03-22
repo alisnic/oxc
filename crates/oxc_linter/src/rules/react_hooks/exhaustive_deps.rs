@@ -112,13 +112,13 @@ fn collect_dependencies(deps: &Argument, _ctx: &LintContext) -> HashSet<String> 
                 // TODO: generate error that cannot analyze dependency.
             }
             _ => {
-                println!("TODO");
+                println!("TODO(connect_dependencies)");
                 dbg!(elem);
             }
         }
     }
 
-    dbg!(array_expr);
+    // dbg!(array_expr);
     return result;
 }
 
@@ -146,7 +146,7 @@ fn check_statement(statement: &Statement, ctx: &LintContext, deps: &mut HashSet<
             check_expression(&expr.expression, ctx, deps);
         }
         _ => {
-            println!("don't know what to do now");
+            println!("TODO(check_statement)");
             dbg!(statement);
         }
     }
@@ -161,7 +161,7 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
                 match arg {
                     Argument::Expression(expr) => check_expression(&expr, ctx, deps),
                     _ => {
-                        println!("TODO");
+                        println!("TODO(check_expression)");
                         dbg!(arg);
                     }
                 }
@@ -189,8 +189,20 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
                 deps.insert(dependency);
             };
         }
+        Expression::ArrayExpression(ary_expr) => {
+            for elem in &ary_expr.elements {
+                match elem {
+                    ArrayExpressionElement::Expression(expr) => {
+                        check_expression(expr, ctx, deps);
+                    }
+                    _ => {
+                        println!("TODO(check_expression) {:?}", elem);
+                    }
+                }
+            }
+        }
         _ => {
-            println!("TODO");
+            println!("TODO(check_expression) {:?}", expression);
             dbg!(expression);
         }
     }
@@ -207,6 +219,8 @@ fn is_identifier_a_dependency(
     let Some(declaration) = get_declaration_of_variable(ident, ctx) else {
         return false;
     };
+
+    dbg!(declaration);
 
     if is_stable_value(declaration) {
         return false;
@@ -236,18 +250,21 @@ fn is_stable_value(node: &AstNode) -> bool {
                 return true;
             }
 
-            println!("TODO");
-            dbg!(declaration);
+            println!("TODO(is_stable_value) {:?}", declaration);
             return false;
         }
 
         AstKind::VariableDeclarator(declaration) => {
-            return declaration.kind == VariableDeclarationKind::Const;
+            if declaration.kind == VariableDeclarationKind::Const {
+                return true;
+            }
+
+            println!("TODO(is_stable_value) {:?}", declaration);
+            return false;
         }
         AstKind::FormalParameter(_) => return false,
         _ => {
-            dbg!(node);
-            println!("help!");
+            println!("TODO(is_stable_value) {:?}", node);
             return false;
         }
     }
