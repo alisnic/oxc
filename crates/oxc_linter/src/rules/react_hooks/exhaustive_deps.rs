@@ -3,8 +3,8 @@ use std::collections::HashSet;
 
 use oxc_ast::{
     ast::{
-        Argument, ArrayExpressionElement, CallExpression, Expression, IdentifierReference,
-        MemberExpression, Statement, VariableDeclarationKind,
+        Argument, ArrayExpressionElement, BindingPatternKind, CallExpression, Expression,
+        IdentifierReference, MemberExpression, Statement, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -134,7 +134,7 @@ fn analyze_property_chain(expr: &Expression<'_>) -> Option<String> {
             ));
         }
         _ => {
-            dbg!(expr);
+            println!("TODO(analyze_property_chain) {:?}", expr);
             return None;
         }
     }
@@ -220,8 +220,6 @@ fn is_identifier_a_dependency(
         return false;
     };
 
-    dbg!(declaration);
-
     if is_stable_value(declaration) {
         return false;
     }
@@ -259,6 +257,29 @@ fn is_stable_value(node: &AstNode) -> bool {
                 return true;
             }
 
+            let Some(Expression::CallExpression(initExpr)) = &declaration.init else {
+                return false;
+            };
+
+            let BindingPatternKind::ArrayPattern(array_pat) = &declaration.id.kind else {
+                return false;
+            };
+
+            // let Some(BindingPatternKind::BindingIdentifier(secondArg)) = array_pat.elements.get(1) else {
+            //     return false;
+            // };
+
+            let Some(initName) = analyze_property_chain(&initExpr.callee) else { return false };
+
+            if initName == "useState" || initName == "useReducer" {
+                // return true if identifier is the second argument
+            }
+
+            dbg!(initName);
+
+            // if initExpr.is_call_expression() && initExpr.cale
+
+            dbg!(declaration);
             println!("TODO(is_stable_value) {:?}", declaration);
             return false;
         }
