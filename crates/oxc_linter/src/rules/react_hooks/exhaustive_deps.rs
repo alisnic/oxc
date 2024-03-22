@@ -3,8 +3,8 @@ use std::collections::HashSet;
 
 use oxc_ast::{
     ast::{
-        Argument, ArrayExpressionElement, CallExpression, Expression, MemberExpression, Statement,
-        VariableDeclarationKind,
+        Argument, ArrayExpressionElement, CallExpression, Expression, IdentifierReference,
+        MemberExpression, Statement, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -164,34 +164,23 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
         }
         // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
-            println!("check: {}", ident.name);
-
-            if ctx.semantic().is_reference_to_global_variable(ident) {
-                return;
+            if is_identifier_a_dependency(ident, ctx) {
+                deps.insert(ident.name.to_string());
             }
-
-            let Some(declaration) = get_declaration_of_variable(ident, ctx) else {
-                return;
-            };
-
-            if is_stable_value(declaration) {
-                return;
-            }
-
-            let Some(reference_id) = ident.reference_id.get() else {
-                return;
-            };
-            let reference = ctx.semantic().symbols().get_reference(reference_id);
-            let node = ctx.semantic().nodes().get_node(reference.node_id());
-
-            if declaration.scope_id() == node.scope_id() {
-                return;
-            }
-
-            deps.insert(ident.name.to_string());
         }
         Expression::MemberExpression(member_expr) => {
-            check_expression(member_expr.object(), ctx, deps);
+            let object = member_expr.object();
+            let Expression::Identifier(ident) = object else {
+                return;
+            };
+
+            if !is_identifier_a_dependency(ident, ctx) {
+                return;
+            }
+
+            if let Some(dependency) = analyze_property_chain(expression) {
+                deps.insert(dependency);
+            };
         }
         _ => {
             println!("TODO");
@@ -200,6 +189,37 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
     }
 }
 
+fn is_identifier_a_dependency(
+    ident: &oxc_allocator::Box<'_, IdentifierReference<'_>>,
+    ctx: &LintContext,
+) -> bool {
+    if ctx.semantic().is_reference_to_global_variable(ident) {
+        return false;
+    }
+
+    let Some(declaration) = get_declaration_of_variable(ident, ctx) else {
+        return false;
+    };
+
+    if is_stable_value(declaration) {
+        return false;
+    }
+
+    let Some(reference_id) = ident.reference_id.get() else {
+        return false;
+    };
+
+    let reference = ctx.semantic().symbols().get_reference(reference_id);
+    let node = ctx.semantic().nodes().get_node(reference.node_id());
+
+    if declaration.scope_id() == node.scope_id() {
+        return false;
+    }
+
+    return true;
+}
+
+// https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L164
 fn is_stable_value(node: &AstNode) -> bool {
     // println!("HERE");
     // dbg!(node);
@@ -227,6 +247,7 @@ fn is_stable_value(node: &AstNode) -> bool {
 }
 
 // TODO: return atom instead of string?
+// https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1742
 fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<String> {
     let inner_exp = call_expr.callee.get_inner_expression();
 
