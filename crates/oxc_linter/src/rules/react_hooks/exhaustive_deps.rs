@@ -13,7 +13,7 @@ use oxc_diagnostics::{
     thiserror::{self, Error},
 };
 use oxc_macros::declare_oxc_lint;
-use oxc_span::{CompactStr, Span};
+use oxc_span::{Atom, CompactStr, Span};
 use phf::phf_set;
 
 use crate::{ast_util::get_declaration_of_variable, context::LintContext, rule::Rule, AstNode};
@@ -220,7 +220,7 @@ fn is_identifier_a_dependency(
         return false;
     };
 
-    if is_stable_value(declaration) {
+    if is_stable_value(declaration, &ident.name) {
         return false;
     }
 
@@ -239,7 +239,7 @@ fn is_identifier_a_dependency(
 }
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L164
-fn is_stable_value(node: &AstNode) -> bool {
+fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
     // println!("HERE");
     // dbg!(node);
     match node.kind() {
@@ -257,7 +257,7 @@ fn is_stable_value(node: &AstNode) -> bool {
                 return true;
             }
 
-            let Some(Expression::CallExpression(initExpr)) = &declaration.init else {
+            let Some(Expression::CallExpression(init_expr)) = &declaration.init else {
                 return false;
             };
 
@@ -265,14 +265,19 @@ fn is_stable_value(node: &AstNode) -> bool {
                 return false;
             };
 
-            // let Some(BindingPatternKind::BindingIdentifier(secondArg)) = array_pat.elements.get(1) else {
-            //     return false;
-            // };
+            let Some(Some(secondArg)) = array_pat.elements.get(1) else {
+                return false;
+            };
 
-            let Some(initName) = analyze_property_chain(&initExpr.callee) else { return false };
+            let BindingPatternKind::BindingIdentifier(binding_ident) = &secondArg.kind else {
+                return false;
+            };
 
-            if initName == "useState" || initName == "useReducer" {
-                // return true if identifier is the second argument
+            let Some(initName) = analyze_property_chain(&init_expr.callee) else { return false };
+
+            // let [foo, setFoo] = useState(null)
+            if (initName == "useState" || initName == "useReducer") && binding_ident.name == name {
+                return true;
             }
 
             dbg!(initName);
