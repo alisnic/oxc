@@ -75,6 +75,13 @@ impl Rule for ExhaustiveDeps {
 
             let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
             for dep in undeclared_deps {
+                // access foo.bar and foo is declared as a dependency
+                if let Some(target) = dep.split_once(".") {
+                    if declared_deps.contains(target.0) {
+                        continue;
+                    }
+                }
+
                 ctx.diagnostic(MissingDependencyDiagnostic(
                     CompactStr::from(callback.to_string()),
                     CompactStr::from(dep.to_string()),
