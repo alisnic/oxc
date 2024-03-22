@@ -61,10 +61,7 @@ impl Rule for ExhaustiveDeps {
                 HashSet::new()
             };
 
-            // println!("declared dependencies");
-            // dbg!(&declared_deps);
-
-            // dbg!(deps);
+            dbg!(&declared_deps);
 
             let body_expr = &body_expr.body;
             let mut found_deps: HashSet<String> = HashSet::new();
@@ -74,8 +71,7 @@ impl Rule for ExhaustiveDeps {
                 check_statement(stmt, ctx, &mut found_deps);
             }
 
-            // println!("found dependencies");
-            // dbg!(&found_deps);
+            dbg!(&found_deps);
 
             let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
             for dep in undeclared_deps {
@@ -103,9 +99,10 @@ fn collect_dependencies(deps: &Argument, _ctx: &LintContext) -> HashSet<String> 
     for elem in &array_expr.elements {
         match elem {
             ArrayExpressionElement::Expression(expr) => {
-                if let Expression::Identifier(ident) = expr {
-                    result.insert(ident.name.to_string());
+                if let Some(dependency) = analyze_property_chain(expr) {
+                    result.insert(dependency);
                 }
+                // TODO: generate error that cannot analyze dependency.
             }
             _ => {
                 println!("TODO");
@@ -116,6 +113,24 @@ fn collect_dependencies(deps: &Argument, _ctx: &LintContext) -> HashSet<String> 
 
     dbg!(array_expr);
     return result;
+}
+
+// https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1705
+fn analyze_property_chain(expr: &Expression<'_>) -> Option<String> {
+    match expr {
+        Expression::Identifier(ident) => return Some(ident.name.to_string()),
+        Expression::MemberExpression(member_expr) => {
+            return Some(format!(
+                "{}.{}",
+                analyze_property_chain(member_expr.object())?,
+                member_expr.static_property_name()?
+            ));
+        }
+        _ => {
+            dbg!(expr);
+            return None;
+        }
+    }
 }
 
 fn check_statement(statement: &Statement, ctx: &LintContext, deps: &mut HashSet<String>) {
@@ -186,8 +201,8 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
 }
 
 fn is_stable_value(node: &AstNode) -> bool {
-    println!("HERE");
-    dbg!(node);
+    // println!("HERE");
+    // dbg!(node);
     match node.kind() {
         AstKind::VariableDeclaration(declaration) => {
             if declaration.kind == VariableDeclarationKind::Const {
@@ -211,7 +226,7 @@ fn is_stable_value(node: &AstNode) -> bool {
     }
 }
 
-// TODO: return atom instead of string
+// TODO: return atom instead of string?
 fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<String> {
     let inner_exp = call_expr.callee.get_inner_expression();
 
