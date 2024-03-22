@@ -1,3 +1,4 @@
+use miette::diagnostic;
 use std::collections::HashSet;
 
 use oxc_ast::{
@@ -9,18 +10,21 @@ use oxc_ast::{
 };
 use oxc_diagnostics::{
     miette::{self, Diagnostic},
-    thiserror::Error,
+    thiserror::{self, Error},
 };
 use oxc_macros::declare_oxc_lint;
-use oxc_span::Span;
+use oxc_span::{CompactStr, Span};
 use phf::phf_set;
 
 use crate::{ast_util::get_declaration_of_variable, context::LintContext, rule::Rule, AstNode};
 
 #[derive(Debug, Error, Diagnostic)]
-#[error("react-hooks(exhaustive-deps):")]
-#[diagnostic(severity(warning), help(""))]
-struct ExhaustiveDepsDiagnostic(#[label] pub Span);
+#[error("react-hooks(exhaustive-deps): React Hook {0} has a missing dependency: {1}")]
+#[diagnostic(severity(warning), help("Either include it or remove the dependency array."))]
+struct MissingDependencyDiagnostic(CompactStr, CompactStr, #[label] pub Span);
+
+// `React Hook ${reactiveHookName} has a missing dependency: '${callback.name}'. ` +
+// `Either include it or remove the dependency array.`,
 
 #[derive(Debug, Default, Clone)]
 pub struct ExhaustiveDeps;
@@ -43,27 +47,6 @@ const HOOKS: phf::Set<&'static str> =
     phf_set!("useEffect", "useLayoutEffect", "useCallback", "useMemo");
 
 impl Rule for ExhaustiveDeps {
-    // fn run_once(&self, ctx: &LintContext) {
-    //     ctx.semantic().nodes().iter().for_each(|node| {
-    //         if let Some(hook) = try_get_hook_call(node) {
-    //             dbg!(hook.name);
-    //         }
-    //     });
-    // }
-
-    // fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
-    //     let AstKind::IdentifierReference(reference) = node.kind() else { return };
-
-    // get parent
-    //
-    // let Some(parent) = ctx.nodes().parent_node(node.id()) else {
-    //     return;
-    // };
-    //
-    // dbg!(reference, node.scope_id());
-    // dbg!(ctx.semantic().scopes().get_bindings(node.scope_id()));
-    // }
-
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let AstKind::CallExpression(call_expr) = node.kind() else { return };
         let Some(callback) = func_call_without_react_namespace(call_expr) else { return };
@@ -79,7 +62,7 @@ impl Rule for ExhaustiveDeps {
             };
 
             println!("declared dependencies");
-            dbg!(declared_deps);
+            dbg!(&declared_deps);
 
             // dbg!(deps);
 
@@ -92,8 +75,16 @@ impl Rule for ExhaustiveDeps {
             }
 
             println!("found dependencies");
-            dbg!(found_deps);
-            // dbg!(&body_expr.statements);
+            dbg!(&found_deps);
+
+            let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
+            for dep in undeclared_deps {
+                ctx.diagnostic(MissingDependencyDiagnostic(
+                    CompactStr::from(callback.to_string()),
+                    CompactStr::from(dep.to_string()),
+                    call_expr.span,
+                ));
+            }
         }
 
         // TODO: useImperativeHandle
@@ -161,7 +152,6 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
             println!("check: {}", ident.name);
 
             if ctx.semantic().is_reference_to_global_variable(ident) {
-                println!("\tis a global variable, all good");
                 return;
             }
 
@@ -170,7 +160,6 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
             };
 
             if is_stable_value(declaration) {
-                println!("\tis stable value, all good");
                 return;
             }
 
@@ -181,7 +170,6 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
             let node = ctx.semantic().nodes().get_node(reference.node_id());
 
             if declaration.scope_id() == node.scope_id() {
-                println!("\tis declared in the same scope, all good");
                 return;
             }
 
@@ -191,7 +179,7 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
             check_expression(member_expr.object(), ctx, deps);
         }
         _ => {
-            println!("ACHTUNG: don't know what to do now");
+            println!("TODO");
             dbg!(expression);
         }
     }
@@ -262,11 +250,11 @@ fn test() {
     ];
 
     let fail = vec![
-        // r"function MyComponent(props) {
-        //     useCallback(() => {
-        //       console.log(props.foo?.toString());
-        //     }, []);
-        //   }",
+        r"function MyComponent({ foo } = props) {
+            React.useCallback(() => {
+              console.log(foo);
+            }, []);
+          }",
     ];
 
     // let pass = vec![
