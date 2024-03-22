@@ -231,8 +231,10 @@ fn is_identifier_a_dependency(
     let reference = ctx.semantic().symbols().get_reference(reference_id);
     let node = ctx.semantic().nodes().get_node(reference.node_id());
 
-    if declaration.scope_id() == node.scope_id() {
+    if declaration.scope_id() >= node.scope_id() {
         return false;
+    } else {
+        println!("decl scope {:?}, node scope {:?}", declaration.scope_id(), node.scope_id());
     }
 
     return true;
@@ -273,14 +275,15 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
                 return false;
             };
 
-            let Some(initName) = analyze_property_chain(&init_expr.callee) else { return false };
+            let Some(init_name) = analyze_property_chain(&init_expr.callee) else { return false };
 
             // let [foo, setFoo] = useState(null)
-            if (initName == "useState" || initName == "useReducer") && binding_ident.name == name {
+            if (init_name == "useState" || init_name == "useReducer") && binding_ident.name == name
+            {
                 return true;
             }
 
-            dbg!(initName);
+            dbg!(init_name);
 
             // if initExpr.is_call_expression() && initExpr.cale
 
