@@ -1,5 +1,6 @@
 use miette::diagnostic;
 use oxc_allocator::Box as OBox;
+use oxc_semantic::ScopeId;
 use std::collections::HashSet;
 
 use oxc_ast::{
@@ -58,6 +59,11 @@ const HOOKS: phf::Set<&'static str> =
 const HOOKS_USELESS_WITHOUT_DEPENDENCIES: phf::Set<&'static str> =
     phf_set!("useCallback", "useMemo");
 
+struct ScanOptions {
+    component_scope_id: ScopeId,
+    hook_scope_id: ScopeId,
+}
+
 impl Rule for ExhaustiveDeps {
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let AstKind::CallExpression(call_expr) = node.kind() else { return };
@@ -77,6 +83,13 @@ impl Rule for ExhaustiveDeps {
             let Some(Argument::Expression(arg0_expr)) = call_expr.arguments.get(0) else { return };
             let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return };
 
+            let Some(component_scope_id) = ctx.semantic().scopes().get_parent_id(node.scope_id())
+            else {
+                return;
+            };
+
+            dbg!(body_expr);
+
             let declared_deps = if let Some(arg) = second_arg {
                 collect_dependencies(arg, ctx)
             } else {
@@ -88,7 +101,7 @@ impl Rule for ExhaustiveDeps {
 
             // println!("lint {callback}");
             for stmt in &body_expr.statements {
-                check_statement(stmt, ctx, &mut found_deps);
+                check_statement(stmt, ctx, &mut found_deps, component_scope_id);
             }
 
             let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
@@ -102,6 +115,7 @@ impl Rule for ExhaustiveDeps {
                     CompactStr::from(dep.join(".")),
                     call_expr.span,
                 ));
+                return;
             }
         }
 
@@ -109,6 +123,7 @@ impl Rule for ExhaustiveDeps {
     }
 }
 
+// TODO: i don't like this, but don't know of a better way yet.
 fn chain_contains(a: &Vec<String>, b: &Vec<String>) -> bool {
     for (index, part) in b.iter().enumerate() {
         let Some(other) = a.get(index) else { return false };
@@ -177,25 +192,30 @@ fn concat_members<'a>(member_expr: &'a OBox<'_, MemberExpression<'a>>) -> Option
     };
 }
 
-fn check_statement<'a>(statement: &'a Statement<'a>, ctx: &LintContext, deps: &mut DependencyList) {
+fn check_statement<'a>(
+    statement: &'a Statement<'a>,
+    ctx: &LintContext,
+    deps: &mut DependencyList,
+    component_scope_id: ScopeId,
+) {
     match statement {
         Statement::ExpressionStatement(expr) => {
-            check_expression(&expr.expression, ctx, deps);
+            check_expression(&expr.expression, ctx, deps, component_scope_id);
         }
         Statement::IfStatement(if_statement) => {
-            check_statement(&if_statement.consequent, ctx, deps);
+            check_statement(&if_statement.consequent, ctx, deps, component_scope_id);
 
             if let Some(alt) = &if_statement.alternate {
-                check_statement(&alt, ctx, deps);
+                check_statement(&alt, ctx, deps, component_scope_id);
             }
         }
         Statement::BlockStatement(block) => {
             for entry in &block.body {
-                check_statement(entry, ctx, deps);
+                check_statement(entry, ctx, deps, component_scope_id);
             }
         }
         Statement::Declaration(decl) => {
-            check_declaration(decl, ctx, deps);
+            check_declaration(decl, ctx, deps, component_scope_id);
         }
         _ => {
             println!("TODO(check_statement)");
@@ -208,6 +228,7 @@ fn check_declaration<'a>(
     decl: &'a oxc_ast::ast::Declaration<'a>,
     ctx: &LintContext<'_>,
     deps: &mut HashSet<Vec<String>>,
+    component_scope_id: ScopeId,
 ) {
     match decl {
         Declaration::VariableDeclaration(var) => {
@@ -215,7 +236,7 @@ fn check_declaration<'a>(
                 let Some(init) = &entry.init else {
                     continue;
                 };
-                check_expression(&init, ctx, deps);
+                check_expression(&init, ctx, deps, component_scope_id);
             }
         }
         _ => {
@@ -229,33 +250,36 @@ fn check_expression<'a>(
     expression: &'a Expression<'a>,
     ctx: &LintContext,
     deps: &mut DependencyList,
+    component_scope_id: ScopeId,
 ) {
     // dbg!(expression);
 
     match expression {
         Expression::CallExpression(call_expr) => {
-            check_call_expression(call_expr, ctx, deps);
+            check_call_expression(call_expr, ctx, deps, component_scope_id);
         }
         // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
-            if is_identifier_a_dependency(ident, ctx) {
+            if is_identifier_a_dependency(ident, ctx, component_scope_id) {
                 deps.insert(Vec::from([ident.name.to_string()]));
             }
         }
         Expression::MemberExpression(member_expr) => {
-            check_member_expression(member_expr, ctx, deps)
+            check_member_expression(member_expr, ctx, deps, component_scope_id)
         }
         Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
-            ChainElement::CallExpression(call_expr) => check_call_expression(call_expr, ctx, deps),
+            ChainElement::CallExpression(call_expr) => {
+                check_call_expression(call_expr, ctx, deps, component_scope_id)
+            }
             ChainElement::MemberExpression(member_expr) => {
-                check_member_expression(member_expr, ctx, deps)
+                check_member_expression(member_expr, ctx, deps, component_scope_id)
             }
         },
         Expression::ArrayExpression(ary_expr) => {
             for elem in &ary_expr.elements {
                 match elem {
                     ArrayExpressionElement::Expression(expr) => {
-                        check_expression(expr, ctx, deps);
+                        check_expression(expr, ctx, deps, component_scope_id);
                     }
                     _ => {
                         println!("TODO(check_expression) {:?}", elem);
@@ -274,12 +298,13 @@ fn check_call_expression<'a>(
     call_expr: &'a OBox<'_, CallExpression<'a>>,
     ctx: &LintContext<'_>,
     deps: &mut DependencyList,
+    component_scope_id: ScopeId,
 ) {
-    check_expression(&call_expr.callee, ctx, deps);
+    check_expression(&call_expr.callee, ctx, deps, component_scope_id);
 
     for arg in &call_expr.arguments {
         match arg {
-            Argument::Expression(expr) => check_expression(&expr, ctx, deps),
+            Argument::Expression(expr) => check_expression(&expr, ctx, deps, component_scope_id),
             _ => {
                 println!("TODO(check_expression)");
                 dbg!(arg);
@@ -292,6 +317,7 @@ fn check_member_expression<'a>(
     member_expr: &'a OBox<'_, MemberExpression<'a>>,
     ctx: &LintContext,
     deps: &mut HashSet<Vec<String>>,
+    component_scope_id: ScopeId,
 ) {
     let mut object = member_expr.object();
 
@@ -303,7 +329,7 @@ fn check_member_expression<'a>(
         return;
     };
 
-    if !is_identifier_a_dependency(ident, ctx) {
+    if !is_identifier_a_dependency(ident, ctx, component_scope_id) {
         return;
     }
 
@@ -315,6 +341,7 @@ fn check_member_expression<'a>(
 fn is_identifier_a_dependency(
     ident: &OBox<'_, IdentifierReference<'_>>,
     ctx: &LintContext,
+    component_scope_id: ScopeId,
 ) -> bool {
     if ctx.semantic().is_reference_to_global_variable(ident) {
         return false;
@@ -324,6 +351,14 @@ fn is_identifier_a_dependency(
         return false;
     };
 
+    let semantic = ctx.semantic();
+    let scopes = semantic.scopes();
+
+    // Variable was declared outside the component scope
+    if scopes.ancestors(component_scope_id).any(|parent| parent == declaration.scope_id()) {
+        return false;
+    }
+
     if is_stable_value(declaration, &ident.name) {
         return false;
     }
@@ -332,13 +367,24 @@ fn is_identifier_a_dependency(
         return false;
     };
 
-    let reference = ctx.semantic().symbols().get_reference(reference_id);
-    let node = ctx.semantic().nodes().get_node(reference.node_id());
+    let reference = semantic.symbols().get_reference(reference_id);
+    let node = semantic.nodes().get_node(reference.node_id());
 
-    if declaration.scope_id() >= node.scope_id() {
+    // dbg!(ident);
+    // dbg!(declaration);
+    // dbg!(node);
+    if declaration.scope_id() == node.scope_id()
+        || scopes.descendants(node.scope_id()).any(|id| id == declaration.scope_id())
+    {
         return false;
     } else {
-        println!("decl scope {:?}, node scope {:?}", declaration.scope_id(), node.scope_id());
+        println!(
+            "name {:?} decl scope {:?}, node scope {:?}",
+            ident.name,
+            declaration.scope_id(),
+            node.scope_id()
+        );
+        // dbg!(scopes.descendants(node.scope_id()).collect());
     }
 
     return true;
@@ -346,7 +392,7 @@ fn is_identifier_a_dependency(
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L164
 fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
-    // println!("HERE");
+    // println!("is_stable_value");
     // dbg!(node);
     match node.kind() {
         AstKind::VariableDeclaration(declaration) => {
@@ -357,7 +403,7 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
             println!("TODO(is_stable_value) {:?}", declaration);
             return false;
         }
-
+        // AstKind::Function(_) => true,
         AstKind::VariableDeclarator(declaration) => {
             let Some(init) = &declaration.init else {
                 return false;
@@ -374,6 +420,14 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
                 return false;
             };
 
+            let Some(init_name) = func_call_without_react_namespace(&init_expr) else {
+                return false;
+            };
+
+            if init_name == "useRef" {
+                return true;
+            }
+
             let BindingPatternKind::ArrayPattern(array_pat) = &declaration.id.kind else {
                 return false;
             };
@@ -386,16 +440,14 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
                 return false;
             };
 
-            let Some(init_name) = analyze_property_chain(&init_expr.callee) else { return false };
-
-            if (init_name == Vec::from(["useState"]) || init_name == Vec::from(["useReducer"]))
+            if (init_name == "useState"
+                || init_name == "useReducer"
+                || init_name == "useTransition")
                 && binding_ident.name == name
             {
                 return true;
             }
 
-            dbg!(declaration);
-            println!("TODO(is_stable_value) {:?}", declaration);
             return false;
         }
         AstKind::FormalParameter(_) => return false,
@@ -435,6 +487,23 @@ fn func_call_without_react_namespace(call_expr: &CallExpression) -> Option<Strin
 #[test]
 fn test() {
     use crate::tester::Tester;
+
+    // let pass_temp = vec![
+    //     r"function MyComponent() {
+    //   const local1 = someFunc();
+    //   function MyNestedComponent() {
+    //     const local2 = someFunc();
+    //     useCallback(() => {
+    //       console.log(local1);
+    //       console.log(local2);
+    //     }, [local2]);
+    //   }
+    // }",
+    // ];
+    // let fail_temp = vec![];
+
+    // Tester::new(ExhaustiveDeps::NAME, pass_temp, fail_temp).test_and_snapshot();
+    // return;
 
     let pass = vec![
         r"function MyComponent() {
