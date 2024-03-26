@@ -136,7 +136,6 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> Depen
                 if let Some(dependency) = analyze_property_chain(expr) {
                     result.insert(dependency);
                 }
-                // TODO: generate error that cannot analyze dependency.
             }
             _ => {
                 println!("TODO(connect_dependencies)");
@@ -145,11 +144,8 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> Depen
         }
     }
 
-    // dbg!(array_expr);
     return result;
 }
-
-struct ReferenceChain {}
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1705
 fn analyze_property_chain<'a>(expr: &'a Expression<'a>) -> Option<Vec<String>> {
@@ -184,6 +180,18 @@ fn check_statement<'a>(statement: &'a Statement<'a>, ctx: &LintContext, deps: &m
     match statement {
         Statement::ExpressionStatement(expr) => {
             check_expression(&expr.expression, ctx, deps);
+        }
+        Statement::IfStatement(if_statement) => {
+            check_statement(&if_statement.consequent, ctx, deps);
+
+            if let Some(alt) = &if_statement.alternate {
+                check_statement(&alt, ctx, deps);
+            }
+        }
+        Statement::BlockStatement(block) => {
+            for entry in &block.body {
+                check_statement(entry, ctx, deps);
+            }
         }
         _ => {
             println!("TODO(check_statement)");
