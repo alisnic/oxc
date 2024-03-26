@@ -5,7 +5,8 @@ use std::collections::HashSet;
 use oxc_ast::{
     ast::{
         Argument, ArrayExpressionElement, BindingPatternKind, CallExpression, ChainElement,
-        Expression, IdentifierReference, MemberExpression, Statement, VariableDeclarationKind,
+        Declaration, Expression, IdentifierReference, MemberExpression, Statement,
+        VariableDeclarationKind,
     },
     AstKind,
 };
@@ -193,9 +194,33 @@ fn check_statement<'a>(statement: &'a Statement<'a>, ctx: &LintContext, deps: &m
                 check_statement(entry, ctx, deps);
             }
         }
+        Statement::Declaration(decl) => {
+            check_declaration(decl, ctx, deps);
+        }
         _ => {
             println!("TODO(check_statement)");
             dbg!(statement);
+        }
+    }
+}
+
+fn check_declaration<'a>(
+    decl: &'a oxc_ast::ast::Declaration<'a>,
+    ctx: &LintContext<'_>,
+    deps: &mut HashSet<Vec<String>>,
+) {
+    match decl {
+        Declaration::VariableDeclaration(var) => {
+            for entry in &var.declarations {
+                let Some(init) = &entry.init else {
+                    continue;
+                };
+                check_expression(&init, ctx, deps);
+            }
+        }
+        _ => {
+            println!("TODO(check_declaration)");
+            dbg!(decl);
         }
     }
 }
