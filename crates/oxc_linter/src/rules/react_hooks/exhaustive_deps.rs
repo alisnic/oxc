@@ -24,6 +24,13 @@ use crate::{ast_util::get_declaration_of_variable, context::LintContext, rule::R
 #[diagnostic(severity(warning), help("Either include it or remove the dependency array."))]
 struct MissingDependencyDiagnostic(CompactStr, CompactStr, #[label] pub Span);
 
+#[derive(Debug, Error, Diagnostic)]
+#[error(
+    "react-hooks(exhaustive-deps): React Hook {0} does nothing when called with only one argument."
+)]
+#[diagnostic(severity(warning), help("Did you forget to pass an array of dependencies?"))]
+struct DependencyArrayRequiredDiagnostic(CompactStr, #[label] pub Span);
+
 // `React Hook ${reactiveHookName} has a missing dependency: '${callback.name}'. ` +
 // `Either include it or remove the dependency array.`,
 
@@ -47,6 +54,9 @@ declare_oxc_lint!(
 const HOOKS: phf::Set<&'static str> =
     phf_set!("useEffect", "useLayoutEffect", "useCallback", "useMemo");
 
+const HOOKS_USELESS_WITHOUT_DEPENDENCIES: phf::Set<&'static str> =
+    phf_set!("useCallback", "useMemo");
+
 impl Rule for ExhaustiveDeps {
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let AstKind::CallExpression(call_expr) = node.kind() else { return };
@@ -56,6 +66,7 @@ impl Rule for ExhaustiveDeps {
             let Some(Argument::Expression(arg0_expr)) = call_expr.arguments.get(0) else { return };
             let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return };
 
+            // TODO: distinction between empty array and not declared deps
             let declared_deps = if let Some(arg) = call_expr.arguments.get(1) {
                 collect_dependencies(arg, ctx)
             } else {
@@ -65,27 +76,28 @@ impl Rule for ExhaustiveDeps {
             dbg!(&declared_deps);
 
             let body_expr = &body_expr.body;
-            let mut found_deps: HashSet<String> = HashSet::new();
+            let mut found_deps: DependencyList = HashSet::new();
 
             // println!("lint {callback}");
             for stmt in &body_expr.statements {
                 check_statement(stmt, ctx, &mut found_deps);
             }
 
-            dbg!(&found_deps);
-
             let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
             for dep in undeclared_deps {
-                // access foo.bar and foo is declared as a dependency
-                if let Some(target) = dep.split_once(".") {
-                    if declared_deps.contains(target.0) {
-                        continue;
-                    }
+                if declared_deps.iter().any(|decl_dep| chain_contains(dep, &decl_dep)) {
+                    continue;
                 }
+                //     // access foo.bar and foo is declared as a dependency
+                //     if let Some(target) = dep.split_once(".") {
+                //         if declared_deps.contains(target.0) {
+                //             continue;
+                //         }
+                //     }
 
                 ctx.diagnostic(MissingDependencyDiagnostic(
                     CompactStr::from(callback.to_string()),
-                    CompactStr::from(dep.to_string()),
+                    CompactStr::from(dep.join(".")),
                     call_expr.span,
                 ));
             }
@@ -95,14 +107,27 @@ impl Rule for ExhaustiveDeps {
     }
 }
 
-fn collect_dependencies(deps: &Argument, _ctx: &LintContext) -> HashSet<String> {
+fn chain_contains(a: &Vec<String>, b: &Vec<String>) -> bool {
+    for (index, part) in b.iter().enumerate() {
+        let Some(other) = a.get(index) else { return false };
+        if other != part {
+            return false;
+        };
+    }
+
+    return true;
+}
+
+type DependencyList = HashSet<Vec<String>>;
+
+fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> DependencyList {
     let Argument::Expression(arg1_expr) = deps else { return HashSet::new() };
 
     let Expression::ArrayExpression(array_expr) = arg1_expr else {
         return HashSet::new();
     };
 
-    let mut result: HashSet<String> = HashSet::new();
+    let mut result: DependencyList = HashSet::new();
 
     for elem in &array_expr.elements {
         match elem {
@@ -123,13 +148,15 @@ fn collect_dependencies(deps: &Argument, _ctx: &LintContext) -> HashSet<String> 
     return result;
 }
 
+struct ReferenceChain {}
+
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1705
-fn analyze_property_chain(expr: &Expression<'_>) -> Option<String> {
+fn analyze_property_chain<'a>(expr: &'a Expression<'a>) -> Option<Vec<String>> {
     match expr {
-        Expression::Identifier(ident) => return Some(ident.name.to_string()),
-        Expression::MemberExpression(member_expr) => member_expr_to_string(member_expr),
+        Expression::Identifier(ident) => return Some(Vec::from([ident.name.to_string()])),
+        Expression::MemberExpression(member_expr) => concat_members(member_expr),
         Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
-            ChainElement::MemberExpression(member_expr) => member_expr_to_string(member_expr),
+            ChainElement::MemberExpression(member_expr) => concat_members(member_expr),
             _ => {
                 println!("TODO(analyze_property_chain) {:?}", expr);
                 return None;
@@ -142,15 +169,17 @@ fn analyze_property_chain(expr: &Expression<'_>) -> Option<String> {
     }
 }
 
-fn member_expr_to_string(member_expr: &OBox<'_, MemberExpression<'_>>) -> Option<String> {
-    return Some(format!(
-        "{}.{}",
-        analyze_property_chain(member_expr.object())?,
-        member_expr.static_property_name()?
-    ));
+fn concat_members<'a>(member_expr: &'a OBox<'_, MemberExpression<'a>>) -> Option<Vec<String>> {
+    let Some(source) = analyze_property_chain(member_expr.object()) else { return None };
+
+    if let Some(prop_name) = member_expr.static_property_name() {
+        return Some([source, Vec::from([prop_name.to_string()])].concat());
+    } else {
+        return Some(source);
+    };
 }
 
-fn check_statement(statement: &Statement, ctx: &LintContext, deps: &mut HashSet<String>) {
+fn check_statement<'a>(statement: &'a Statement<'a>, ctx: &LintContext, deps: &mut DependencyList) {
     match statement {
         Statement::ExpressionStatement(expr) => {
             check_expression(&expr.expression, ctx, deps);
@@ -162,7 +191,11 @@ fn check_statement(statement: &Statement, ctx: &LintContext, deps: &mut HashSet<
     }
 }
 
-fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashSet<String>) {
+fn check_expression<'a>(
+    expression: &'a Expression<'a>,
+    ctx: &LintContext,
+    deps: &mut DependencyList,
+) {
     // dbg!(expression);
 
     match expression {
@@ -172,7 +205,7 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
         // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
             if is_identifier_a_dependency(ident, ctx) {
-                deps.insert(ident.name.to_string());
+                deps.insert(Vec::from([ident.name.to_string()]));
             }
         }
         Expression::MemberExpression(member_expr) => {
@@ -203,10 +236,10 @@ fn check_expression(expression: &Expression, ctx: &LintContext, deps: &mut HashS
     }
 }
 
-fn check_call_expression(
-    call_expr: &OBox<'_, CallExpression<'_>>,
+fn check_call_expression<'a>(
+    call_expr: &'a OBox<'_, CallExpression<'a>>,
     ctx: &LintContext<'_>,
-    deps: &mut HashSet<String>,
+    deps: &mut DependencyList,
 ) {
     check_expression(&call_expr.callee, ctx, deps);
 
@@ -221,10 +254,10 @@ fn check_call_expression(
     }
 }
 
-fn check_member_expression(
-    member_expr: &OBox<'_, MemberExpression<'_>>,
+fn check_member_expression<'a>(
+    member_expr: &'a OBox<'_, MemberExpression<'a>>,
     ctx: &LintContext,
-    deps: &mut HashSet<String>,
+    deps: &mut HashSet<Vec<String>>,
 ) {
     let mut object = member_expr.object();
 
@@ -240,7 +273,7 @@ fn check_member_expression(
         return;
     }
 
-    if let Some(dependency) = member_expr_to_string(member_expr) {
+    if let Some(dependency) = concat_members(member_expr) {
         deps.insert(dependency);
     };
 }
@@ -315,7 +348,8 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
             let Some(init_name) = analyze_property_chain(&init_expr.callee) else { return false };
 
             // let [foo, setFoo] = useState(null)
-            if (init_name == "useState" || init_name == "useReducer") && binding_ident.name == name
+            if (init_name == Vec::from(["useState"]) || init_name == Vec::from(["useReducer"]))
+                && binding_ident.name == name
             {
                 return true;
             }
@@ -1310,17 +1344,7 @@ fn test() {
         }",
     ];
 
-    // let pass_tmp = vec![];
-
     let fail = vec![
-        r"function MyComponent(props) {
-      useCallback(() => {
-        console.log(props.foo?.toString());
-      }, []);
-    }",
-    ];
-
-    let fail2 = vec![
         r"function MyComponent(props) {
           useCallback(() => {
             console.log(props.foo?.toString());
@@ -1341,36 +1365,36 @@ fn test() {
             console.log(props.foo?.bar.toString());
           }, []);
         }",
-        r"function MyComponent() {
-          const local = someFunc();
-          useEffect(() => {
-            console.log(local);
-          }, []);
-        }",
-        r"function Counter(unstableProp) {
-          let [count, setCount] = useState(0);
-          setCount = unstableProp
-          useEffect(() => {
-            let id = setInterval(() => {
-              setCount(c => c + 1);
-            }, 1000);
-            return () => clearInterval(id);
-          }, []);
+        // r"function MyComponent() {
+        //   const local = someFunc();
+        //   useEffect(() => {
+        //     console.log(local);
+        //   }, []);
+        // }",
+        // r"function Counter(unstableProp) {
+        //   let [count, setCount] = useState(0);
+        //   setCount = unstableProp
+        //   useEffect(() => {
+        //     let id = setInterval(() => {
+        //       setCount(c => c + 1);
+        //     }, 1000);
+        //     return () => clearInterval(id);
+        //   }, []);
 
-          return <h1>{count}</h1>;
-        }",
-        r"function MyComponent() {
-          let local = 42;
-          useEffect(() => {
-            console.log(local);
-          }, []);
-        }",
-        r"function MyComponent() {
-          const local = /foo/;
-          useEffect(() => {
-            console.log(local);
-          }, []);
-        }",
+        //   return <h1>{count}</h1>;
+        // }",
+        // r"function MyComponent() {
+        //   let local = 42;
+        //   useEffect(() => {
+        //     console.log(local);
+        //   }, []);
+        // }",
+        // r"function MyComponent() {
+        //   const local = /foo/;
+        //   useEffect(() => {
+        //     console.log(local);
+        //   }, []);
+        // }",
         r"function MyComponent(props) {
           const value = useMemo(() => { return 2*2; });
           const fn = useCallback(() => { alert('foo'); });
