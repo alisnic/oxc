@@ -334,11 +334,18 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
         }
 
         AstKind::VariableDeclarator(declaration) => {
-            if declaration.kind == VariableDeclarationKind::Const {
-                return true;
-            }
+            let Some(init) = &declaration.init else {
+                return false;
+            };
 
-            let Some(Expression::CallExpression(init_expr)) = &declaration.init else {
+            // dbg!(declaration);
+            if declaration.kind == VariableDeclarationKind::Const
+                && (init.is_literal() || matches!(init, Expression::ObjectExpression(_)))
+            {
+                return true;
+            };
+
+            let Expression::CallExpression(init_expr) = &init else {
                 return false;
             };
 
@@ -346,26 +353,21 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
                 return false;
             };
 
-            let Some(Some(secondArg)) = array_pat.elements.get(1) else {
+            let Some(Some(second_arg)) = array_pat.elements.get(1) else {
                 return false;
             };
 
-            let BindingPatternKind::BindingIdentifier(binding_ident) = &secondArg.kind else {
+            let BindingPatternKind::BindingIdentifier(binding_ident) = &second_arg.kind else {
                 return false;
             };
 
             let Some(init_name) = analyze_property_chain(&init_expr.callee) else { return false };
 
-            // let [foo, setFoo] = useState(null)
             if (init_name == Vec::from(["useState"]) || init_name == Vec::from(["useReducer"]))
                 && binding_ident.name == name
             {
                 return true;
             }
-
-            dbg!(init_name);
-
-            // if initExpr.is_call_expression() && initExpr.cale
 
             dbg!(declaration);
             println!("TODO(is_stable_value) {:?}", declaration);
