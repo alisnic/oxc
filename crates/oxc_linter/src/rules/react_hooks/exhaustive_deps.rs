@@ -63,17 +63,24 @@ impl Rule for ExhaustiveDeps {
         let Some(callback) = func_call_without_react_namespace(call_expr) else { return };
 
         if HOOKS.contains(&callback) {
+            let second_arg = call_expr.arguments.get(1);
+
+            if second_arg.is_none() && HOOKS_USELESS_WITHOUT_DEPENDENCIES.contains(&callback) {
+                ctx.diagnostic(DependencyArrayRequiredDiagnostic(
+                    CompactStr::from(callback.to_string()),
+                    call_expr.span,
+                ));
+                return;
+            }
+
             let Some(Argument::Expression(arg0_expr)) = call_expr.arguments.get(0) else { return };
             let Expression::ArrowFunctionExpression(body_expr) = arg0_expr else { return };
 
-            // TODO: distinction between empty array and not declared deps
-            let declared_deps = if let Some(arg) = call_expr.arguments.get(1) {
+            let declared_deps = if let Some(arg) = second_arg {
                 collect_dependencies(arg, ctx)
             } else {
                 HashSet::new()
             };
-
-            dbg!(&declared_deps);
 
             let body_expr = &body_expr.body;
             let mut found_deps: DependencyList = HashSet::new();
@@ -88,12 +95,6 @@ impl Rule for ExhaustiveDeps {
                 if declared_deps.iter().any(|decl_dep| chain_contains(dep, &decl_dep)) {
                     continue;
                 }
-                //     // access foo.bar and foo is declared as a dependency
-                //     if let Some(target) = dep.split_once(".") {
-                //         if declared_deps.contains(target.0) {
-                //             continue;
-                //         }
-                //     }
 
                 ctx.diagnostic(MissingDependencyDiagnostic(
                     CompactStr::from(callback.to_string()),
