@@ -406,7 +406,9 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
 
             // dbg!(declaration);
             if declaration.kind == VariableDeclarationKind::Const
-                && (init.is_literal() || matches!(init, Expression::ObjectExpression(_)))
+                && (init.is_literal()
+                    || matches!(init, Expression::ObjectExpression(_))
+                    || matches!(init, Expression::ArrowFunctionExpression(_)))
             {
                 return true;
             };
@@ -446,6 +448,7 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
             return false;
         }
         AstKind::FormalParameter(_) => return false,
+        AstKind::Function(_) => return true,
         _ => {
             println!("TODO(is_stable_value) {:?}", node);
             return false;
