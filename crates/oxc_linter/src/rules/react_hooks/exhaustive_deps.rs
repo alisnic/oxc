@@ -154,8 +154,7 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> Depen
                 }
             }
             _ => {
-                println!("TODO(connect_dependencies)");
-                dbg!(elem);
+                println!("TODO(connect_dependencies) {:?}", elem);
             }
         }
     }
@@ -218,8 +217,7 @@ fn check_statement<'a>(
             check_declaration(decl, ctx, deps, component_scope_id);
         }
         _ => {
-            println!("TODO(check_statement)");
-            dbg!(statement);
+            println!("TODO(check_statement) {:?}", statement);
         }
     }
 }
@@ -240,8 +238,7 @@ fn check_declaration<'a>(
             }
         }
         _ => {
-            println!("TODO(check_declaration)");
-            dbg!(decl);
+            println!("TODO(check_declaration) {:?}", decl);
         }
     }
 }
@@ -289,7 +286,6 @@ fn check_expression<'a>(
         }
         _ => {
             println!("TODO(check_expression) {:?}", expression);
-            dbg!(expression);
         }
     }
 }
@@ -306,8 +302,7 @@ fn check_call_expression<'a>(
         match arg {
             Argument::Expression(expr) => check_expression(&expr, ctx, deps, component_scope_id),
             _ => {
-                println!("TODO(check_expression)");
-                dbg!(arg);
+                println!("TODO(check_expression) {:?}", arg);
             }
         }
     }
