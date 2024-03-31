@@ -107,30 +107,31 @@ impl Rule for ExhaustiveDeps {
                 check_statement(stmt, ctx, &mut found_deps, component_scope_id);
             }
 
+            dbg!(&declared_deps);
+            dbg!(&found_deps);
             let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
             for dep in undeclared_deps {
-                if declared_deps.iter().any(|decl_dep| chain_contains(dep, &decl_dep)) {
-                    continue;
-                }
+                // if declared_deps.iter().any(|decl_dep| chain_contains(dep, &decl_dep)) {
+                //     continue;
+                // }
 
                 ctx.diagnostic(MissingDependencyDiagnostic(
                     CompactStr::from(callback.to_string()),
-                    CompactStr::from(dep.join(".")),
-                    call_expr.span,
+                    CompactStr::from(dep.to_string()),
+                    dep.iref.span,
                 ));
                 return;
             }
 
-            let unnecessary_deps: Vec<_> = declared_deps.difference(&found_deps).collect();
-            for dep in unnecessary_deps {
-                ctx.diagnostic(UnnecessaryDependencyDiagnostic(
-                    CompactStr::from(callback.to_string()),
-                    CompactStr::from(dep.join(".")),
-                    call_expr.span,
-                ));
-            }
+            // let unnecessary_deps: Vec<_> = declared_deps.difference(&found_deps).collect();
+            // for dep in unnecessary_deps {
+            //     ctx.diagnostic(UnnecessaryDependencyDiagnostic(
+            //         CompactStr::from(callback.to_string()),
+            //         CompactStr::from(dep.to_string()),
+            //         call_expr.span,
+            //     ));
+            // }
         }
-
     }
 }
 
@@ -146,9 +147,31 @@ fn chain_contains(a: &Vec<String>, b: &Vec<String>) -> bool {
     return true;
 }
 
-type DependencyList = HashSet<Vec<String>>;
+#[derive(Hash, Debug)]
+struct Dependency<'a> {
+    iref: &'a OBox<'a, IdentifierReference<'a>>,
+    chain: Option<Vec<String>>,
+}
 
-fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> DependencyList {
+impl PartialEq for Dependency<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iref.name == other.iref.name && self.iref.reference_id == other.iref.reference_id
+    }
+}
+
+impl Eq for Dependency<'_> {}
+
+impl Dependency<'_> {
+    fn to_string(&self) -> String {
+        return [vec![self.iref.name.to_string()], self.chain.clone().unwrap_or(vec![])]
+            .concat()
+            .join(".");
+    }
+}
+
+type DependencyList<'a> = HashSet<Dependency<'a>>;
+
+fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> DependencyList<'a> {
     let Argument::Expression(arg1_expr) = deps else { return HashSet::new() };
 
     let Expression::ArrayExpression(array_expr) = arg1_expr else {
@@ -174,9 +197,9 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> Depen
 }
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1705
-fn analyze_property_chain<'a>(expr: &'a Expression<'a>) -> Option<Vec<String>> {
+fn analyze_property_chain<'a>(expr: &'a Expression<'a>) -> Option<Dependency> {
     match expr {
-        Expression::Identifier(ident) => return Some(Vec::from([ident.name.to_string()])),
+        Expression::Identifier(ident) => return Some(Dependency { iref: ident, chain: None }),
         Expression::MemberExpression(member_expr) => concat_members(member_expr),
         Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
             ChainElement::MemberExpression(member_expr) => concat_members(member_expr),
@@ -192,11 +215,18 @@ fn analyze_property_chain<'a>(expr: &'a Expression<'a>) -> Option<Vec<String>> {
     }
 }
 
-fn concat_members<'a>(member_expr: &'a OBox<'_, MemberExpression<'a>>) -> Option<Vec<String>> {
+fn concat_members<'a>(member_expr: &'a OBox<'_, MemberExpression<'a>>) -> Option<Dependency<'a>> {
     let Some(source) = analyze_property_chain(member_expr.object()) else { return None };
 
     if let Some(prop_name) = member_expr.static_property_name() {
-        return Some([source, Vec::from([prop_name.to_string()])].concat());
+        let new_chain = Vec::from([prop_name.to_string()]);
+        // TODO: re-use existing chain
+        return Some(Dependency {
+            iref: source.iref,
+            chain: source
+                .chain
+                .map_or(Some(new_chain.clone()), |chain| Some([chain, new_chain].concat())),
+        });
     } else {
         return Some(source);
     };
@@ -205,7 +235,7 @@ fn concat_members<'a>(member_expr: &'a OBox<'_, MemberExpression<'a>>) -> Option
 fn check_statement<'a>(
     statement: &'a Statement<'a>,
     ctx: &LintContext,
-    deps: &mut DependencyList,
+    deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
     match statement {
@@ -247,7 +277,7 @@ fn check_statement<'a>(
 fn check_block_statement<'a>(
     block: &'a BlockStatement<'a>,
     ctx: &LintContext,
-    deps: &mut DependencyList,
+    deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
     for entry in &block.body {
@@ -258,7 +288,7 @@ fn check_block_statement<'a>(
 fn check_declaration<'a>(
     decl: &'a oxc_ast::ast::Declaration<'a>,
     ctx: &LintContext<'_>,
-    deps: &mut HashSet<Vec<String>>,
+    deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
     match decl {
@@ -279,7 +309,7 @@ fn check_declaration<'a>(
 fn check_expression<'a>(
     expression: &'a Expression<'a>,
     ctx: &LintContext,
-    deps: &mut DependencyList,
+    deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
     // dbg!(expression);
@@ -290,9 +320,9 @@ fn check_expression<'a>(
         }
         // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
-            if is_identifier_a_dependency(ident, ctx, component_scope_id) {
-                deps.insert(Vec::from([ident.name.to_string()]));
-            }
+            // if is_identifier_a_dependency(ident, ctx, component_scope_id) {
+            deps.insert(Dependency { iref: ident, chain: None });
+            // }
         }
         Expression::MemberExpression(member_expr) => {
             check_member_expression(member_expr, ctx, deps, component_scope_id)
@@ -326,7 +356,7 @@ fn check_expression<'a>(
 fn check_call_expression<'a>(
     call_expr: &'a OBox<'_, CallExpression<'a>>,
     ctx: &LintContext<'_>,
-    deps: &mut DependencyList,
+    deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
     check_expression(&call_expr.callee, ctx, deps, component_scope_id);
@@ -344,7 +374,7 @@ fn check_call_expression<'a>(
 fn check_member_expression<'a>(
     member_expr: &'a OBox<'_, MemberExpression<'a>>,
     ctx: &LintContext,
-    deps: &mut HashSet<Vec<String>>,
+    deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
     let mut object = member_expr.object();
