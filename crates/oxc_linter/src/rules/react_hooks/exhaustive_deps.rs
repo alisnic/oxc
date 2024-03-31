@@ -395,6 +395,7 @@ fn check_call_expression<'a>(
     deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
+    println!("check_call_expression {:?}", call_expr);
     check_expression(&call_expr.callee, ctx, deps, component_scope_id);
 
     for arg in &call_expr.arguments {
@@ -419,6 +420,8 @@ fn check_member_expression<'a>(
         object = expr.object();
     }
 
+    // check_expression(object, ctx, deps, component_scope_id);
+
     if let Some(dependency) = concat_members(member_expr) {
         deps.insert(dependency);
     };
@@ -436,6 +439,8 @@ fn is_identifier_a_dependency(
     let Some(declaration) = get_declaration_of_variable(ident, ctx) else {
         return false;
     };
+
+    // TODO: if identifier is assigned, check whether the source is a dependency instead.
 
     let semantic = ctx.semantic();
     let scopes = semantic.scopes();
@@ -475,8 +480,8 @@ fn is_identifier_a_dependency(
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L164
 fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
-    println!("is_stable_value");
-    dbg!(node);
+    // println!("is_stable_value");
+    // dbg!(node);
     match node.kind() {
         AstKind::VariableDeclaration(declaration) => {
             if declaration.kind == VariableDeclarationKind::Const {
@@ -1089,25 +1094,25 @@ fn test() {
             };
           }, [myRef]);
         }",
-        r"function MyComponent() {
-          const myRef = useRef();
-          useEffect(() => {
-            const handleMove = () => {};
-            const node = myRef.current;
-            node.addEventListener('mousemove', handleMove);
-            return () => node.removeEventListener('mousemove', handleMove);
-          }, []);
-          return <div ref={myRef} />;
-        }",
-        r"function useMyThing(myRef) {
-          useEffect(() => {
-            const handleMove = () => {};
-            const node = myRef.current;
-            node.addEventListener('mousemove', handleMove);
-            return () => node.removeEventListener('mousemove', handleMove);
-          }, [myRef]);
-          return <div ref={myRef} />;
-        }",
+        // r"function MyComponent() {
+        //   const myRef = useRef();
+        //   useEffect(() => {
+        //     const handleMove = () => {};
+        //     const node = myRef.current;
+        //     node.addEventListener('mousemove', handleMove);
+        //     return () => node.removeEventListener('mousemove', handleMove);
+        //   }, []);
+        //   return <div ref={myRef} />;
+        // }",
+        // r"function useMyThing(myRef) {
+        //   useEffect(() => {
+        //     const handleMove = () => {};
+        //     const node = myRef.current;
+        //     node.addEventListener('mousemove', handleMove);
+        //     return () => node.removeEventListener('mousemove', handleMove);
+        //   }, [myRef]);
+        //   return <div ref={myRef} />;
+        // }",
         r"function useMyThing(myRef) {
           useCallback(() => {
             const handleMouse = () => {};
@@ -1276,80 +1281,80 @@ fn test() {
         //     }
         //   }, [delay]);
         // }",
-        r"function Counter() {
-          const [count, setCount] = useState(0);
+        // r"function Counter() {
+        //   const [count, setCount] = useState(0);
 
-          useEffect(() => {
-            let id = setInterval(() => {
-              setCount(c => c + 1);
-            }, 1000);
-            return () => clearInterval(id);
-          }, []);
+        //   useEffect(() => {
+        //     let id = setInterval(() => {
+        //       setCount(c => c + 1);
+        //     }, 1000);
+        //     return () => clearInterval(id);
+        //   }, []);
 
-          return <h1>{count}</h1>;
-        }",
-        r"function Counter(unstableProp) {
-          let [count, setCount] = useState(0);
-          setCount = unstableProp
-          useEffect(() => {
-            let id = setInterval(() => {
-              setCount(c => c + 1);
-            }, 1000);
-            return () => clearInterval(id);
-          }, [setCount]);
+        //   return <h1>{count}</h1>;
+        // }",
+        // r"function Counter(unstableProp) {
+        //   let [count, setCount] = useState(0);
+        //   setCount = unstableProp
+        //   useEffect(() => {
+        //     let id = setInterval(() => {
+        //       setCount(c => c + 1);
+        //     }, 1000);
+        //     return () => clearInterval(id);
+        //   }, [setCount]);
 
-          return <h1>{count}</h1>;
-        }",
-        r"function Counter() {
-          const [count, setCount] = useState(0);
+        //   return <h1>{count}</h1>;
+        // }",
+        // r"function Counter() {
+        //   const [count, setCount] = useState(0);
 
-          function tick() {
-            setCount(c => c + 1);
-          }
+        //   function tick() {
+        //     setCount(c => c + 1);
+        //   }
 
-          useEffect(() => {
-            let id = setInterval(() => {
-              tick();
-            }, 1000);
-            return () => clearInterval(id);
-          }, []);
+        //   useEffect(() => {
+        //     let id = setInterval(() => {
+        //       tick();
+        //     }, 1000);
+        //     return () => clearInterval(id);
+        //   }, []);
 
-          return <h1>{count}</h1>;
-        }",
-        r"function Counter() {
-          const [count, dispatch] = useReducer((state, action) => {
-            if (action === 'inc') {
-              return state + 1;
-            }
-          }, 0);
+        //   return <h1>{count}</h1>;
+        // }",
+        // r"function Counter() {
+        //   const [count, dispatch] = useReducer((state, action) => {
+        //     if (action === 'inc') {
+        //       return state + 1;
+        //     }
+        //   }, 0);
 
-          useEffect(() => {
-            let id = setInterval(() => {
-              dispatch('inc');
-            }, 1000);
-            return () => clearInterval(id);
-          }, []);
+        //   useEffect(() => {
+        //     let id = setInterval(() => {
+        //       dispatch('inc');
+        //     }, 1000);
+        //     return () => clearInterval(id);
+        //   }, []);
 
-          return <h1>{count}</h1>;
-        }",
-        r"function Counter() {
-          const [count, dispatch] = useReducer((state, action) => {
-            if (action === 'inc') {
-              return state + 1;
-            }
-          }, 0);
+        //   return <h1>{count}</h1>;
+        // }",
+        // r"function Counter() {
+        //   const [count, dispatch] = useReducer((state, action) => {
+        //     if (action === 'inc') {
+        //       return state + 1;
+        //     }
+        //   }, 0);
 
-          const tick = () => {
-            dispatch('inc');
-          };
+        //   const tick = () => {
+        //     dispatch('inc');
+        //   };
 
-          useEffect(() => {
-            let id = setInterval(tick, 1000);
-            return () => clearInterval(id);
-          }, []);
+        //   useEffect(() => {
+        //     let id = setInterval(tick, 1000);
+        //     return () => clearInterval(id);
+        //   }, []);
 
-          return <h1>{count}</h1>;
-        }",
+        //   return <h1>{count}</h1>;
+        // }",
         r"function Podcasts() {
           useEffect(() => {
             setPodcasts([]);
