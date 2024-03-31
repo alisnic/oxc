@@ -420,6 +420,8 @@ fn check_member_expression<'a>(
         object = expr.object();
     }
 
+    // TODO: check arguments
+    // TODO: final span to cover all the expression.
     // check_expression(object, ctx, deps, component_scope_id);
 
     if let Some(dependency) = concat_members(member_expr) {
