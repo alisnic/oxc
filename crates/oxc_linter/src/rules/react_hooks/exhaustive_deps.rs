@@ -5,9 +5,9 @@ use std::collections::HashSet;
 
 use oxc_ast::{
     ast::{
-        Argument, ArrayExpressionElement, BindingPatternKind, BlockStatement, CallExpression,
-        ChainElement, Declaration, Expression, IdentifierReference, MemberExpression, Statement,
-        VariableDeclarationKind,
+        Argument, ArrayExpressionElement, AssignmentTarget, BindingPatternKind, BlockStatement,
+        CallExpression, ChainElement, Declaration, Expression, IdentifierReference,
+        MemberExpression, SimpleAssignmentTarget, Statement, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -64,10 +64,10 @@ const HOOKS: phf::Set<&'static str> =
 const HOOKS_USELESS_WITHOUT_DEPENDENCIES: phf::Set<&'static str> =
     phf_set!("useCallback", "useMemo");
 
-struct ScanOptions {
-    component_scope_id: ScopeId,
-    hook_scope_id: ScopeId,
-}
+// struct ScanOptions {
+//     component_scope_id: ScopeId,
+//     hook_scope_id: ScopeId,
+// }
 
 impl Rule for ExhaustiveDeps {
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
@@ -111,9 +111,13 @@ impl Rule for ExhaustiveDeps {
             dbg!(&found_deps);
             let undeclared_deps: Vec<_> = found_deps.difference(&declared_deps).collect();
             for dep in undeclared_deps {
-                // if declared_deps.iter().any(|decl_dep| chain_contains(dep, &decl_dep)) {
-                //     continue;
-                // }
+                if declared_deps.iter().any(|decl_dep| dep.contains(decl_dep)) {
+                    continue;
+                }
+
+                if !is_identifier_a_dependency(dep.iref, ctx, component_scope_id) {
+                    continue;
+                };
 
                 ctx.diagnostic(MissingDependencyDiagnostic(
                     CompactStr::from(callback.to_string()),
@@ -123,14 +127,20 @@ impl Rule for ExhaustiveDeps {
                 return;
             }
 
-            // let unnecessary_deps: Vec<_> = declared_deps.difference(&found_deps).collect();
-            // for dep in unnecessary_deps {
-            //     ctx.diagnostic(UnnecessaryDependencyDiagnostic(
-            //         CompactStr::from(callback.to_string()),
-            //         CompactStr::from(dep.to_string()),
-            //         call_expr.span,
-            //     ));
-            // }
+            let unnecessary_deps: Vec<_> = declared_deps.difference(&found_deps).collect();
+            dbg!(&unnecessary_deps);
+
+            for dep in unnecessary_deps {
+                if found_deps.iter().any(|found_dep| found_dep.contains(dep)) {
+                    continue;
+                }
+
+                ctx.diagnostic(UnnecessaryDependencyDiagnostic(
+                    CompactStr::from(callback.to_string()),
+                    CompactStr::from(dep.to_string()),
+                    dep.iref.span,
+                ));
+            }
         }
     }
 }
@@ -150,12 +160,12 @@ fn chain_contains(a: &Vec<String>, b: &Vec<String>) -> bool {
 #[derive(Hash, Debug)]
 struct Dependency<'a> {
     iref: &'a OBox<'a, IdentifierReference<'a>>,
-    chain: Option<Vec<String>>,
+    chain: Vec<String>,
 }
 
 impl PartialEq for Dependency<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.iref.name == other.iref.name && self.iref.reference_id == other.iref.reference_id
+        self.iref.name == other.iref.name && self.chain == other.chain
     }
 }
 
@@ -163,9 +173,11 @@ impl Eq for Dependency<'_> {}
 
 impl Dependency<'_> {
     fn to_string(&self) -> String {
-        return [vec![self.iref.name.to_string()], self.chain.clone().unwrap_or(vec![])]
-            .concat()
-            .join(".");
+        [vec![self.iref.name.to_string()], self.chain.clone()].concat().join(".")
+    }
+
+    fn contains(&self, other: &Self) -> bool {
+        self.iref.name == other.iref.name && chain_contains(&self.chain, &other.chain)
     }
 }
 
@@ -199,7 +211,7 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> Depen
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1705
 fn analyze_property_chain<'a>(expr: &'a Expression<'a>) -> Option<Dependency> {
     match expr {
-        Expression::Identifier(ident) => return Some(Dependency { iref: ident, chain: None }),
+        Expression::Identifier(ident) => return Some(Dependency { iref: ident, chain: vec![] }),
         Expression::MemberExpression(member_expr) => concat_members(member_expr),
         Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
             ChainElement::MemberExpression(member_expr) => concat_members(member_expr),
@@ -220,13 +232,7 @@ fn concat_members<'a>(member_expr: &'a OBox<'_, MemberExpression<'a>>) -> Option
 
     if let Some(prop_name) = member_expr.static_property_name() {
         let new_chain = Vec::from([prop_name.to_string()]);
-        // TODO: re-use existing chain
-        return Some(Dependency {
-            iref: source.iref,
-            chain: source
-                .chain
-                .map_or(Some(new_chain.clone()), |chain| Some([chain, new_chain].concat())),
-        });
+        return Some(Dependency { iref: source.iref, chain: [source.chain, new_chain].concat() });
     } else {
         return Some(source);
     };
@@ -266,6 +272,11 @@ fn check_statement<'a>(
 
             if let Some(finally) = &try_statement.finalizer {
                 check_block_statement(&finally, ctx, deps, component_scope_id);
+            }
+        }
+        Statement::ReturnStatement(ret_statement) => {
+            if let Some(arg) = &ret_statement.argument {
+                check_expression(&arg, ctx, deps, component_scope_id);
             }
         }
         _ => {
@@ -320,9 +331,7 @@ fn check_expression<'a>(
         }
         // TODO: avoid checking the same identifier multiple times in multiple references?
         Expression::Identifier(ident) => {
-            // if is_identifier_a_dependency(ident, ctx, component_scope_id) {
-            deps.insert(Dependency { iref: ident, chain: None });
-            // }
+            deps.insert(Dependency { iref: ident, chain: vec![] });
         }
         Expression::MemberExpression(member_expr) => {
             check_member_expression(member_expr, ctx, deps, component_scope_id)
@@ -335,6 +344,28 @@ fn check_expression<'a>(
                 check_member_expression(member_expr, ctx, deps, component_scope_id)
             }
         },
+        Expression::LogicalExpression(logical_expr) => {
+            check_expression(&logical_expr.left, ctx, deps, component_scope_id);
+            check_expression(&logical_expr.right, ctx, deps, component_scope_id);
+        }
+        Expression::AssignmentExpression(ass) => {
+            if let AssignmentTarget::SimpleAssignmentTarget(target) = &ass.left {
+                match target {
+                    SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) => {
+                        deps.insert(Dependency { iref: &ident, chain: vec![] });
+                    }
+                    SimpleAssignmentTarget::MemberAssignmentTarget(member_expr) => {
+                        check_member_expression(member_expr, ctx, deps, component_scope_id);
+                    }
+                    _ => {
+                        println!("TODO(check_expression) {:?}", target)
+                    }
+                }
+            }
+
+            check_expression(&ass.right, ctx, deps, component_scope_id);
+        }
+
         Expression::ArrayExpression(ary_expr) => {
             for elem in &ary_expr.elements {
                 match elem {
@@ -381,14 +412,6 @@ fn check_member_expression<'a>(
 
     while let Expression::MemberExpression(expr) = object {
         object = expr.object();
-    }
-
-    let Expression::Identifier(ident) = object else {
-        return;
-    };
-
-    if !is_identifier_a_dependency(ident, ctx, component_scope_id) {
-        return;
     }
 
     if let Some(dependency) = concat_members(member_expr) {
