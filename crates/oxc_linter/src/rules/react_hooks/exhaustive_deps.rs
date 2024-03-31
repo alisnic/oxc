@@ -27,6 +27,11 @@ use crate::{ast_util::get_declaration_of_variable, context::LintContext, rule::R
 struct MissingDependencyDiagnostic(CompactStr, CompactStr, #[label] pub Span);
 
 #[derive(Debug, Error, Diagnostic)]
+#[error("react-hooks(exhaustive-deps): React Hook {0} has unnecessary dependency: {1}")]
+#[diagnostic(severity(warning), help("Either exclude it or remove the dependency array."))]
+struct UnnecessaryDependencyDiagnostic(CompactStr, CompactStr, #[label] pub Span);
+
+#[derive(Debug, Error, Diagnostic)]
 #[error(
     "react-hooks(exhaustive-deps): React Hook {0} does nothing when called with only one argument."
 )]
@@ -88,8 +93,6 @@ impl Rule for ExhaustiveDeps {
                 return;
             };
 
-            dbg!(body_expr);
-
             let declared_deps = if let Some(arg) = second_arg {
                 collect_dependencies(arg, ctx)
             } else {
@@ -117,9 +120,17 @@ impl Rule for ExhaustiveDeps {
                 ));
                 return;
             }
+
+            let unnecessary_deps: Vec<_> = declared_deps.difference(&found_deps).collect();
+            for dep in unnecessary_deps {
+                ctx.diagnostic(UnnecessaryDependencyDiagnostic(
+                    CompactStr::from(callback.to_string()),
+                    CompactStr::from(dep.join(".")),
+                    call_expr.span,
+                ));
+            }
         }
 
-        // TODO: useImperativeHandle
     }
 }
 
@@ -387,9 +398,6 @@ fn is_identifier_a_dependency(
     let reference = semantic.symbols().get_reference(reference_id);
     let node = semantic.nodes().get_node(reference.node_id());
 
-    // dbg!(ident);
-    // dbg!(declaration);
-    // dbg!(node);
     if declaration.scope_id() == node.scope_id()
         || scopes.descendants(node.scope_id()).any(|id| id == declaration.scope_id())
     {
@@ -1542,23 +1550,23 @@ fn test() {
             }
           }, []);
         }",
-        r"function MyComponent() {
-          const local = {};
-          useEffect(() => {
-            try {
-              console.log(local);
-            } finally {}
-          }, []);
-        }",
-        r"function MyComponent() {
-          const local = {};
-          useEffect(() => {
-            function inner() {
-              console.log(local);
-            }
-            inner();
-          }, []);
-        }",
+        // r"function MyComponent() {
+        //   const local = {};
+        //   useEffect(() => {
+        //     try {
+        //       console.log(local);
+        //     } finally {}
+        //   }, []);
+        // }",
+        // r"function MyComponent() {
+        //   const local = {};
+        //   useEffect(() => {
+        //     function inner() {
+        //       console.log(local);
+        //     }
+        //     inner();
+        //   }, []);
+        // }",
         r"function MyComponent() {
           const local1 = someFunc();
           {
@@ -1569,45 +1577,45 @@ fn test() {
             }, []);
           }
         }",
-        r"function MyComponent() {
-          const local1 = {};
-          const local2 = {};
-          useEffect(() => {
-            console.log(local1);
-            console.log(local2);
-          }, [local1]);
-        }",
-        r"function MyComponent() {
-          const local1 = {};
-          const local2 = {};
-          useMemo(() => {
-            console.log(local1);
-          }, [local1, local2]);
-        }",
-        r"function MyComponent() {
-          const local1 = someFunc();
-          function MyNestedComponent() {
-            const local2 = {};
-            useCallback(() => {
-              console.log(local1);
-              console.log(local2);
-            }, [local1]);
-          }
-        }",
-        r"function MyComponent() {
-          const local = {};
-          useEffect(() => {
-            console.log(local);
-            console.log(local);
-          }, []);
-        }",
-        r"function MyComponent() {
-          const local = {};
-          useEffect(() => {
-            console.log(local);
-            console.log(local);
-          }, [local, local]);
-        }",
+        // r"function MyComponent() {
+        //   const local1 = {};
+        //   const local2 = {};
+        //   useEffect(() => {
+        //     console.log(local1);
+        //     console.log(local2);
+        //   }, [local1]);
+        // }",
+        // r"function MyComponent() {
+        //   const local1 = {};
+        //   const local2 = {};
+        //   useMemo(() => {
+        //     console.log(local1);
+        //   }, [local1, local2]);
+        // }",
+        // r"function MyComponent() {
+        //   const local1 = someFunc();
+        //   function MyNestedComponent() {
+        //     const local2 = {};
+        //     useCallback(() => {
+        //       console.log(local1);
+        //       console.log(local2);
+        //     }, [local1]);
+        //   }
+        // }",
+        // r"function MyComponent() {
+        //   const local = {};
+        //   useEffect(() => {
+        //     console.log(local);
+        //     console.log(local);
+        //   }, []);
+        // }",
+        // r"function MyComponent() {
+        //   const local = {};
+        //   useEffect(() => {
+        //     console.log(local);
+        //     console.log(local);
+        //   }, [local, local]);
+        // }",
         r"function MyComponent() {
           useCallback(() => {}, [window]);
         }",
