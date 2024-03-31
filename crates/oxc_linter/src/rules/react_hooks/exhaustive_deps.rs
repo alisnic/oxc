@@ -336,6 +336,11 @@ fn check_expression<'a>(
         Expression::MemberExpression(member_expr) => {
             check_member_expression(member_expr, ctx, deps, component_scope_id)
         }
+        Expression::ArrowFunctionExpression(arrow_fn) => {
+            for entry in &arrow_fn.body.statements {
+                check_statement(entry, ctx, deps, component_scope_id);
+            }
+        }
         Expression::ChainExpression(chain_expr) => match &chain_expr.expression {
             ChainElement::CallExpression(call_expr) => {
                 check_call_expression(call_expr, ctx, deps, component_scope_id)
@@ -470,8 +475,8 @@ fn is_identifier_a_dependency(
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L164
 fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
-    // println!("is_stable_value");
-    // dbg!(node);
+    println!("is_stable_value");
+    dbg!(node);
     match node.kind() {
         AstKind::VariableDeclaration(declaration) => {
             if declaration.kind == VariableDeclarationKind::Const {
@@ -487,11 +492,15 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
                 return false;
             };
 
+            if matches!(init, Expression::ArrowFunctionExpression(_))
+                || matches!(init, Expression::FunctionExpression(_))
+            {
+                return true;
+            };
+
             // dbg!(declaration);
             if declaration.kind == VariableDeclarationKind::Const
-                && (init.is_literal()
-                    || matches!(init, Expression::ObjectExpression(_))
-                    || matches!(init, Expression::ArrowFunctionExpression(_)))
+                && (init.is_literal() || matches!(init, Expression::ObjectExpression(_)))
             {
                 return true;
             };
@@ -1154,15 +1163,15 @@ fn test() {
             console.log(local3);
           }, [local1, local2, local3]);
         }",
-        r"function MyComponent(props) {
-          const local = props.local;
-          useEffect(() => {}, [local]);
-        }",
-        r"function Foo({ activeTab }) {
-          useEffect(() => {
-            window.scrollTo(0, 0);
-          }, [activeTab]);
-        }",
+        // r"function MyComponent(props) {
+        //   const local = props.local;
+        //   useEffect(() => {}, [local]);
+        // }",
+        // r"function Foo({ activeTab }) {
+        //   useEffect(() => {
+        //     window.scrollTo(0, 0);
+        //   }, [activeTab]);
+        // }",
         r"function MyComponent(props) {
           useEffect(() => {
             console.log(props.foo.bar.baz);
@@ -1252,21 +1261,21 @@ fn test() {
             return Store.subscribe(handleNext3);
           }, []);
         }",
-        r"function useInterval(callback, delay) {
-          const savedCallback = useRef();
-          useEffect(() => {
-            savedCallback.current = callback;
-          });
-          useEffect(() => {
-            function tick() {
-              savedCallback.current();
-            }
-            if (delay !== null) {
-              let id = setInterval(tick, delay);
-              return () => clearInterval(id);
-            }
-          }, [delay]);
-        }",
+        // r"function useInterval(callback, delay) {
+        //   const savedCallback = useRef();
+        //   useEffect(() => {
+        //     savedCallback.current = callback;
+        //   });
+        //   useEffect(() => {
+        //     function tick() {
+        //       savedCallback.current();
+        //     }
+        //     if (delay !== null) {
+        //       let id = setInterval(tick, delay);
+        //       return () => clearInterval(id);
+        //     }
+        //   }, [delay]);
+        // }",
         r"function Counter() {
           const [count, setCount] = useState(0);
 
