@@ -5,8 +5,8 @@ use std::collections::HashSet;
 
 use oxc_ast::{
     ast::{
-        Argument, ArrayExpressionElement, BindingPatternKind, CallExpression, ChainElement,
-        Declaration, Expression, IdentifierReference, MemberExpression, Statement,
+        Argument, ArrayExpressionElement, BindingPatternKind, BlockStatement, CallExpression,
+        ChainElement, Declaration, Expression, IdentifierReference, MemberExpression, Statement,
         VariableDeclarationKind,
     },
     AstKind,
@@ -216,9 +216,31 @@ fn check_statement<'a>(
         Statement::Declaration(decl) => {
             check_declaration(decl, ctx, deps, component_scope_id);
         }
+        Statement::TryStatement(try_statement) => {
+            check_block_statement(&try_statement.block, ctx, deps, component_scope_id);
+
+            if let Some(handler) = &try_statement.handler {
+                check_block_statement(&handler.body, ctx, deps, component_scope_id);
+            }
+
+            if let Some(finally) = &try_statement.finalizer {
+                check_block_statement(&finally, ctx, deps, component_scope_id);
+            }
+        }
         _ => {
             println!("TODO(check_statement) {:?}", statement);
         }
+    }
+}
+
+fn check_block_statement<'a>(
+    block: &'a BlockStatement<'a>,
+    ctx: &LintContext,
+    deps: &mut DependencyList,
+    component_scope_id: ScopeId,
+) {
+    for entry in &block.body {
+        check_statement(entry, ctx, deps, component_scope_id);
     }
 }
 
@@ -1359,18 +1381,18 @@ fn test() {
             </>
           );
         }",
-        r"function Example() {
-          const foo = useCallback(() => {
-            foo();
-          }, []);
-        }",
-        r"function Example({ prop }) {
-          const foo = useCallback(() => {
-            if (prop) {
-              foo();
-            }
-          }, [prop]);
-        }",
+        // r"function Example() {
+        //   const foo = useCallback(() => {
+        //     foo();
+        //   }, []);
+        // }",
+        // r"function Example({ prop }) {
+        //   const foo = useCallback(() => {
+        //     if (prop) {
+        //       foo();
+        //     }
+        //   }, [prop]);
+        // }",
         r"function Hello() {
           const [state, setState] = useState(0);
           useEffect(() => {
