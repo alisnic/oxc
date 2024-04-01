@@ -311,6 +311,15 @@ fn check_declaration<'a>(
                 check_expression(&init, ctx, deps, component_scope_id);
             }
         }
+        Declaration::FunctionDeclaration(func_dec) => {
+            let Some(body) = &func_dec.body else {
+                return;
+            };
+
+            for stmt in &body.statements {
+                check_statement(stmt, ctx, deps, component_scope_id);
+            }
+        }
         _ => {
             println!("TODO(check_declaration) {:?}", decl);
         }
@@ -416,8 +425,15 @@ fn check_member_expression<'a>(
 ) {
     let mut object = member_expr.object();
 
+    dbg!(&object);
+
     while let Expression::MemberExpression(expr) = object {
         object = expr.object();
+        dbg!(&object);
+    }
+
+    if let Expression::CallExpression(call_expr) = object {
+        check_call_expression(&call_expr, ctx, deps, component_scope_id);
     }
 
     // TODO: check arguments
