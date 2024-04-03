@@ -446,7 +446,7 @@ fn test() {
         export function Foo() {
           return (
             <div>
-              <input type="search" size={30} placeholder={text} />
+              <input type='search' size={30} placeholder={text} />
             </div>
           );
         }",
@@ -652,12 +652,12 @@ fn test() {
         r"type Color = 'red' | 'blue';
         type Quantity = 'one' | 'two';
         export type SeussFish = `${Quantity | Color} fish`;",
-        r"type VerticalAlignment = "top" | "middle" | "bottom";
-        type HorizontalAlignment = "left" | "center" | "right";
+        r"type VerticalAlignment = 'top' | 'middle' | 'bottom';
+        type HorizontalAlignment = 'left' | 'center' | 'right';
 
         export declare function setAlignment(value: `${VerticalAlignment}-${HorizontalAlignment}`): void;",
         r"type EnthusiasticGreeting<T extends string> = `${Uppercase<T>} - ${Lowercase<T>} - ${Capitalize<T>} - ${Uncapitalize<T>}`;
-        export type HELLO = EnthusiasticGreeting<"heLLo">;",
+        export type HELLO = EnthusiasticGreeting<'heLLo'>;",
         r"interface IItem {
           title: string;
           url: string;
@@ -671,7 +671,7 @@ fn test() {
           a: string;
           b: Foo;
         }",
-        r"/* eslint collect-unused-vars: "error" */
+        r"/* eslint collect-unused-vars: 'error' */
         declare module 'next-auth' {
           interface User {
             id: string;

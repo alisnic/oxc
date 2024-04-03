@@ -135,6 +135,7 @@ mod typescript {
     pub mod no_this_alias;
     pub mod no_unnecessary_type_constraint;
     pub mod no_unsafe_declaration_merging;
+    pub mod no_unused_vars;
     pub mod no_var_requires;
     pub mod prefer_as_const;
     pub mod prefer_function_type;
