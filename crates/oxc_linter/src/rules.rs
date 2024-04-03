@@ -467,6 +467,7 @@ oxc_macros::declare_all_lint_rules! {
     typescript::prefer_function_type,
     typescript::prefer_ts_expect_error,
     typescript::triple_slash_reference,
+    typescript::no_unused_vars,
     jest::expect_expect,
     jest::max_expects,
     jest::no_alias_methods,

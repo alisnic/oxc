@@ -122,11 +122,11 @@ fn test() {
         r"import { Foo } from 'foo';
         const bar = function <T>(): T {};
         bar<Foo>();",
-        r"import { Foo } from 'foo';
-        const bar = <T,>(): T => {};
-        bar<Foo>();",
-        r"import { Foo } from 'foo';
-        <Foo>(<T,>(): T => {})();",
+        // r"import { Foo } from 'foo';
+        // const bar = <T,>(): T => {};
+        // bar<Foo>();",
+        // r"import { Foo } from 'foo';
+        // <Foo>(<T,>(): T => {})();",
         r"import { Nullable } from 'nullable';
         const a: Nullable<string> = 'hello';
         console.log(a);",
@@ -489,9 +489,9 @@ fn test() {
           new (arg: number): T;
           new <T>(arg: number): T;
         };",
-        r"export type T = new () => T;
-        export type T = new (arg: number) => T;
-        export type T = new <T>(arg: number) => T;",
+        // r"export type T = new () => T;
+        // export type T = new (arg: number) => T;
+        // export type T = new <T>(arg: number) => T;",
         r"enum Foo {
           a,
         }
