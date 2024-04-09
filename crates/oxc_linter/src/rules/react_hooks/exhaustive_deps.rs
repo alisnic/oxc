@@ -59,6 +59,13 @@ struct DependencyListNotAnArrayDiagnostic(CompactStr, #[label] pub Span);
 #[diagnostic(severity(warning))]
 struct DependencyListSpreadDiagnostic(CompactStr, #[label] pub Span);
 
+#[derive(Debug, Error, Diagnostic)]
+#[error(
+    "react-hooks(exhaustive-deps): React Hook {0} has a complex expression in the dependency array. Extract it to a separate variable so that it can be statically checked."
+)]
+#[diagnostic(severity(warning))]
+struct ComplexExpressionInDependencyDiagnostic(CompactStr, #[label] pub Span);
+
 // `React Hook ${reactiveHookName} has a missing dependency: '${callback.name}'. ` +
 // `Either include it or remove the dependency array.`,
 
@@ -241,6 +248,18 @@ fn collect_dependencies<'a>(
                         lit.span,
                     ));
                     continue;
+                }
+
+                if !matches!(expr, Expression::Identifier(_))
+                    && !matches!(expr, Expression::MemberExpression(_))
+                    && !matches!(expr, Expression::ChainExpression(_))
+                {
+                    ctx.diagnostic(ComplexExpressionInDependencyDiagnostic(
+                        CompactStr::from(callback.clone()),
+                        span,
+                    ));
+
+                    return None;
                 }
 
                 if let Some(dependency) = analyze_property_chain(expr) {
