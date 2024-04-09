@@ -7,8 +7,7 @@ use oxc_ast::{
     ast::{
         Argument, ArrayExpressionElement, AssignmentTarget, BindingPatternKind, BlockStatement,
         CallExpression, ChainElement, Declaration, Expression, IdentifierReference,
-        MemberExpression, SimpleAssignmentTarget, Statement, StringLiteral,
-        VariableDeclarationKind,
+        MemberExpression, SimpleAssignmentTarget, Statement, VariableDeclarationKind,
     },
     AstKind,
 };
@@ -109,6 +108,10 @@ impl Rule for ExhaustiveDeps {
             };
 
             let declared_deps = if let Some(arg) = second_arg {
+                if !valid_dependencies(callback.clone(), call_expr.span, arg, ctx) {
+                    return;
+                };
+
                 collect_dependencies(arg, ctx)
             } else {
                 HashSet::new()
@@ -160,6 +163,33 @@ impl Rule for ExhaustiveDeps {
     }
 }
 
+fn valid_dependencies<'a>(
+    callback: String,
+    span: Span,
+    arg: &Argument<'a>,
+    ctx: &LintContext<'a>,
+) -> bool {
+    let Argument::Expression(arg1_expr) = arg else {
+        ctx.diagnostic(DependencyListNotAnArrayDiagnostic(CompactStr::from(callback), span));
+
+        return false;
+    };
+
+    if let Expression::Identifier(ident) = arg1_expr {
+        if ident.name == "undefined" {
+            return true;
+        }
+    }
+
+    if !matches!(arg1_expr, Expression::ArrayExpression(_)) {
+        ctx.diagnostic(DependencyListNotAnArrayDiagnostic(CompactStr::from(callback), span));
+
+        return false;
+    };
+
+    return true;
+}
+
 // TODO: i don't like this, but don't know of a better way yet.
 fn chain_contains(a: &Vec<String>, b: &Vec<String>) -> bool {
     for (index, part) in b.iter().enumerate() {
@@ -202,11 +232,6 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, ctx: &LintContext) -> Depend
     let Argument::Expression(arg1_expr) = deps else { return HashSet::new() };
 
     let Expression::ArrayExpression(array_expr) = arg1_expr else {
-        // ctx.diagnostic(DependencyListNotAnArrayDiagnostic(
-        //     CompactStr::from(lit.value.to_string()),
-        //     lit.span,
-        // ));
-
         return HashSet::new();
     };
 
