@@ -1139,25 +1139,25 @@ fn test() {
             };
           }, [myRef]);
         }",
-        // r"function MyComponent() {
-        //   const myRef = useRef();
-        //   useEffect(() => {
-        //     const handleMove = () => {};
-        //     const node = myRef.current;
-        //     node.addEventListener('mousemove', handleMove);
-        //     return () => node.removeEventListener('mousemove', handleMove);
-        //   }, []);
-        //   return <div ref={myRef} />;
-        // }",
-        // r"function useMyThing(myRef) {
-        //   useEffect(() => {
-        //     const handleMove = () => {};
-        //     const node = myRef.current;
-        //     node.addEventListener('mousemove', handleMove);
-        //     return () => node.removeEventListener('mousemove', handleMove);
-        //   }, [myRef]);
-        //   return <div ref={myRef} />;
-        // }",
+        r"function MyComponent() {
+          const myRef = useRef();
+          useEffect(() => {
+            const handleMove = () => {};
+            const node = myRef.current;
+            node.addEventListener('mousemove', handleMove);
+            return () => node.removeEventListener('mousemove', handleMove);
+          }, []);
+          return <div ref={myRef} />;
+        }",
+        r"function useMyThing(myRef) {
+          useEffect(() => {
+            const handleMove = () => {};
+            const node = myRef.current;
+            node.addEventListener('mousemove', handleMove);
+            return () => node.removeEventListener('mousemove', handleMove);
+          }, [myRef]);
+          return <div ref={myRef} />;
+        }",
         r"function useMyThing(myRef) {
           useCallback(() => {
             const handleMouse = () => {};
@@ -1326,80 +1326,80 @@ fn test() {
         //     }
         //   }, [delay]);
         // }",
-        // r"function Counter() {
-        //   const [count, setCount] = useState(0);
+        r"function Counter() {
+          const [count, setCount] = useState(0);
 
-        //   useEffect(() => {
-        //     let id = setInterval(() => {
-        //       setCount(c => c + 1);
-        //     }, 1000);
-        //     return () => clearInterval(id);
-        //   }, []);
+          useEffect(() => {
+            let id = setInterval(() => {
+              setCount(c => c + 1);
+            }, 1000);
+            return () => clearInterval(id);
+          }, []);
 
-        //   return <h1>{count}</h1>;
-        // }",
-        // r"function Counter(unstableProp) {
-        //   let [count, setCount] = useState(0);
-        //   setCount = unstableProp
-        //   useEffect(() => {
-        //     let id = setInterval(() => {
-        //       setCount(c => c + 1);
-        //     }, 1000);
-        //     return () => clearInterval(id);
-        //   }, [setCount]);
+          return <h1>{count}</h1>;
+        }",
+        r"function Counter(unstableProp) {
+          let [count, setCount] = useState(0);
+          setCount = unstableProp
+          useEffect(() => {
+            let id = setInterval(() => {
+              setCount(c => c + 1);
+            }, 1000);
+            return () => clearInterval(id);
+          }, [setCount]);
 
-        //   return <h1>{count}</h1>;
-        // }",
-        // r"function Counter() {
-        //   const [count, setCount] = useState(0);
+          return <h1>{count}</h1>;
+        }",
+        r"function Counter() {
+          const [count, setCount] = useState(0);
 
-        //   function tick() {
-        //     setCount(c => c + 1);
-        //   }
+          function tick() {
+            setCount(c => c + 1);
+          }
 
-        //   useEffect(() => {
-        //     let id = setInterval(() => {
-        //       tick();
-        //     }, 1000);
-        //     return () => clearInterval(id);
-        //   }, []);
+          useEffect(() => {
+            let id = setInterval(() => {
+              tick();
+            }, 1000);
+            return () => clearInterval(id);
+          }, []);
 
-        //   return <h1>{count}</h1>;
-        // }",
-        // r"function Counter() {
-        //   const [count, dispatch] = useReducer((state, action) => {
-        //     if (action === 'inc') {
-        //       return state + 1;
-        //     }
-        //   }, 0);
+          return <h1>{count}</h1>;
+        }",
+        r"function Counter() {
+          const [count, dispatch] = useReducer((state, action) => {
+            if (action === 'inc') {
+              return state + 1;
+            }
+          }, 0);
 
-        //   useEffect(() => {
-        //     let id = setInterval(() => {
-        //       dispatch('inc');
-        //     }, 1000);
-        //     return () => clearInterval(id);
-        //   }, []);
+          useEffect(() => {
+            let id = setInterval(() => {
+              dispatch('inc');
+            }, 1000);
+            return () => clearInterval(id);
+          }, []);
 
-        //   return <h1>{count}</h1>;
-        // }",
-        // r"function Counter() {
-        //   const [count, dispatch] = useReducer((state, action) => {
-        //     if (action === 'inc') {
-        //       return state + 1;
-        //     }
-        //   }, 0);
+          return <h1>{count}</h1>;
+        }",
+        r"function Counter() {
+          const [count, dispatch] = useReducer((state, action) => {
+            if (action === 'inc') {
+              return state + 1;
+            }
+          }, 0);
 
-        //   const tick = () => {
-        //     dispatch('inc');
-        //   };
+          const tick = () => {
+            dispatch('inc');
+          };
 
-        //   useEffect(() => {
-        //     let id = setInterval(tick, 1000);
-        //     return () => clearInterval(id);
-        //   }, []);
+          useEffect(() => {
+            let id = setInterval(tick, 1000);
+            return () => clearInterval(id);
+          }, []);
 
-        //   return <h1>{count}</h1>;
-        // }",
+          return <h1>{count}</h1>;
+        }",
         r"function Podcasts() {
           useEffect(() => {
             setPodcasts([]);
