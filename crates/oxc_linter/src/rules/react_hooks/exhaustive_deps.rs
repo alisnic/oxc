@@ -7,7 +7,8 @@ use oxc_ast::{
     ast::{
         Argument, ArrayExpressionElement, AssignmentTarget, BindingPatternKind, BlockStatement,
         CallExpression, ChainElement, Declaration, Expression, IdentifierReference,
-        MemberExpression, SimpleAssignmentTarget, Statement, VariableDeclarationKind,
+        MemberExpression, SimpleAssignmentTarget, Statement, StringLiteral,
+        VariableDeclarationKind,
     },
     AstKind,
 };
@@ -37,6 +38,20 @@ struct UnnecessaryDependencyDiagnostic(CompactStr, CompactStr, #[label] pub Span
 )]
 #[diagnostic(severity(warning), help("Did you forget to pass an array of dependencies?"))]
 struct DependencyArrayRequiredDiagnostic(CompactStr, #[label] pub Span);
+
+#[derive(Debug, Error, Diagnostic)]
+#[error(
+    "react-hooks(exhaustive-deps): The {0} literal is not a valid dependency because it never changes"
+)]
+#[diagnostic(severity(warning))]
+struct LiteralNotAValidDependencyDiagnostic(CompactStr, #[label] pub Span);
+
+#[derive(Debug, Error, Diagnostic)]
+#[error(
+    "react-hooks(exhaustive-deps): React Hook {0} {0} was passed a dependency list that is not an array literal. This means we can't statically verify whether you've passed the correct dependencies."
+)]
+#[diagnostic(severity(warning))]
+struct DependencyListNotAnArrayDiagnostic(CompactStr, #[label] pub Span);
 
 // `React Hook ${reactiveHookName} has a missing dependency: '${callback.name}'. ` +
 // `Either include it or remove the dependency array.`,
@@ -183,10 +198,15 @@ impl Dependency<'_> {
 
 type DependencyList<'a> = HashSet<Dependency<'a>>;
 
-fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> DependencyList<'a> {
+fn collect_dependencies<'a>(deps: &'a Argument<'a>, ctx: &LintContext) -> DependencyList<'a> {
     let Argument::Expression(arg1_expr) = deps else { return HashSet::new() };
 
     let Expression::ArrayExpression(array_expr) = arg1_expr else {
+        // ctx.diagnostic(DependencyListNotAnArrayDiagnostic(
+        //     CompactStr::from(lit.value.to_string()),
+        //     lit.span,
+        // ));
+
         return HashSet::new();
     };
 
@@ -195,6 +215,14 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, _ctx: &LintContext) -> Depen
     for elem in &array_expr.elements {
         match elem {
             ArrayExpressionElement::Expression(expr) => {
+                if let Expression::StringLiteral(lit) = expr {
+                    ctx.diagnostic(LiteralNotAValidDependencyDiagnostic(
+                        CompactStr::from(lit.value.to_string()),
+                        lit.span,
+                    ));
+                    continue;
+                }
+
                 if let Some(dependency) = analyze_property_chain(expr) {
                     result.insert(dependency);
                 }
