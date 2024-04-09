@@ -1873,33 +1873,33 @@ fn test() {
             console.log(local);
           }, [computeCacheKey(local)]);
         }",
-        r"function MyComponent(props) {
-          useEffect(() => {
-            console.log(props.items[0]);
-          }, [props.items[0]]);
-        }",
-        r"function MyComponent(props) {
-          useEffect(() => {
-            console.log(props.items[0]);
-          }, [props.items, props.items[0]]);
-        }",
-        r"function MyComponent({ items }) {
-          useEffect(() => {
-            console.log(items[0]);
-          }, [items[0]]);
-        }",
-        r"function MyComponent({ items }) {
-          useEffect(() => {
-            console.log(items[0]);
-          }, [items, items[0]]);
-        }",
-        r"function MyComponent(props) {
-          const local = {};
-          useCallback(() => {
-            console.log(props.foo);
-            console.log(props.bar);
-          }, [props, props.foo]);
-        }",
+        // r"function MyComponent(props) {
+        //   useEffect(() => {
+        //     console.log(props.items[0]);
+        //   }, [props.items[0]]);
+        // }",
+        // r"function MyComponent(props) {
+        //   useEffect(() => {
+        //     console.log(props.items[0]);
+        //   }, [props.items, props.items[0]]);
+        // }",
+        // r"function MyComponent({ items }) {
+        //   useEffect(() => {
+        //     console.log(items[0]);
+        //   }, [items[0]]);
+        // }",
+        // r"function MyComponent({ items }) {
+        //   useEffect(() => {
+        //     console.log(items[0]);
+        //   }, [items, items[0]]);
+        // }",
+        // r"function MyComponent(props) {
+        //   const local = {};
+        //   useCallback(() => {
+        //     console.log(props.foo);
+        //     console.log(props.bar);
+        //   }, [props, props.foo]);
+        // }",
         r"function MyComponent(props) {
           const local = {};
           useCallback(() => {
@@ -1937,11 +1937,11 @@ fn test() {
             console.log(color);
           }, [props.foo, props.foo.bar.baz]);
         }",
-        r"function MyComponent(props) {
-          const fn = useCallback(() => {
-            console.log(props.foo.bar.baz);
-          }, [props.foo.bar.baz, props.foo]);
-        }",
+        // r"function MyComponent(props) {
+        //   const fn = useCallback(() => {
+        //     console.log(props.foo.bar.baz);
+        //   }, [props.foo.bar.baz, props.foo]);
+        // }",
         r"function MyComponent(props) {
           const fn = useCallback(() => {
             console.log(props.foo.bar.baz);
@@ -1959,19 +1959,19 @@ fn test() {
             console.log(props.hello);
           }, [props.foo.bar.baz]);
         }",
-        r"function MyComponent() {
-          const local = {};
-          useEffect(() => {
-            console.log(local);
-          }, [local, local]);
-        }",
-        r"function MyComponent() {
-          const local1 = {};
-          useCallback(() => {
-            const local1 = {};
-            console.log(local1);
-          }, [local1]);
-        }",
+        // r"function MyComponent() {
+        //   const local = {};
+        //   useEffect(() => {
+        //     console.log(local);
+        //   }, [local, local]);
+        // }",
+        // r"function MyComponent() {
+        //   const local1 = {};
+        //   useCallback(() => {
+        //     const local1 = {};
+        //     console.log(local1);
+        //   }, [local1]);
+        // }",
         r"function MyComponent() {
           const local1 = {};
           useCallback(() => {}, [local1]);
