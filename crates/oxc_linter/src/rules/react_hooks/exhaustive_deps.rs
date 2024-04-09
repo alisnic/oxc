@@ -249,6 +249,7 @@ fn check_statement<'a>(
             check_expression(&expr.expression, ctx, deps, component_scope_id);
         }
         Statement::IfStatement(if_statement) => {
+            check_expression(&if_statement.test, ctx, deps, component_scope_id);
             check_statement(&if_statement.consequent, ctx, deps, component_scope_id);
 
             if let Some(alt) = &if_statement.alternate {
@@ -332,8 +333,6 @@ fn check_expression<'a>(
     deps: &mut DependencyList<'a>,
     component_scope_id: ScopeId,
 ) {
-    // dbg!(expression);
-
     match expression {
         Expression::CallExpression(call_expr) => {
             check_call_expression(call_expr, ctx, deps, component_scope_id);
