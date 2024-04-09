@@ -47,10 +47,17 @@ struct LiteralNotAValidDependencyDiagnostic(CompactStr, #[label] pub Span);
 
 #[derive(Debug, Error, Diagnostic)]
 #[error(
-    "react-hooks(exhaustive-deps): React Hook {0} {0} was passed a dependency list that is not an array literal. This means we can't statically verify whether you've passed the correct dependencies."
+    "react-hooks(exhaustive-deps): React Hook {0}was passed a dependency list that is not an array literal. This means we can't statically verify whether you've passed the correct dependencies."
 )]
 #[diagnostic(severity(warning))]
 struct DependencyListNotAnArrayDiagnostic(CompactStr, #[label] pub Span);
+
+#[derive(Debug, Error, Diagnostic)]
+#[error(
+    "react-hooks(exhaustive-deps): React Hook {0} has a spread element in its dependecy array. This means we can't statically verify whether you've passed the correct dependencies."
+)]
+#[diagnostic(severity(warning))]
+struct DependencyListSpreadDiagnostic(CompactStr, #[label] pub Span);
 
 // `React Hook ${reactiveHookName} has a missing dependency: '${callback.name}'. ` +
 // `Either include it or remove the dependency array.`,
@@ -107,14 +114,14 @@ impl Rule for ExhaustiveDeps {
                 return;
             };
 
-            let declared_deps = if let Some(arg) = second_arg {
-                if !valid_dependencies(callback.clone(), call_expr.span, arg, ctx) {
-                    return;
-                };
-
-                collect_dependencies(arg, ctx)
+            let declared_deps_option = if let Some(arg) = second_arg {
+                collect_dependencies(callback.clone(), call_expr.span, arg, ctx)
             } else {
-                HashSet::new()
+                Some(HashSet::new())
+            };
+
+            let Some(declared_deps) = declared_deps_option else {
+                return;
             };
 
             let body_expr = &body_expr.body;
@@ -163,33 +170,6 @@ impl Rule for ExhaustiveDeps {
     }
 }
 
-fn valid_dependencies<'a>(
-    callback: String,
-    span: Span,
-    arg: &Argument<'a>,
-    ctx: &LintContext<'a>,
-) -> bool {
-    let Argument::Expression(arg1_expr) = arg else {
-        ctx.diagnostic(DependencyListNotAnArrayDiagnostic(CompactStr::from(callback), span));
-
-        return false;
-    };
-
-    if let Expression::Identifier(ident) = arg1_expr {
-        if ident.name == "undefined" {
-            return true;
-        }
-    }
-
-    if !matches!(arg1_expr, Expression::ArrayExpression(_)) {
-        ctx.diagnostic(DependencyListNotAnArrayDiagnostic(CompactStr::from(callback), span));
-
-        return false;
-    };
-
-    return true;
-}
-
 // TODO: i don't like this, but don't know of a better way yet.
 fn chain_contains(a: &Vec<String>, b: &Vec<String>) -> bool {
     for (index, part) in b.iter().enumerate() {
@@ -228,11 +208,26 @@ impl Dependency<'_> {
 
 type DependencyList<'a> = HashSet<Dependency<'a>>;
 
-fn collect_dependencies<'a>(deps: &'a Argument<'a>, ctx: &LintContext) -> DependencyList<'a> {
-    let Argument::Expression(arg1_expr) = deps else { return HashSet::new() };
+fn collect_dependencies<'a>(
+    callback: String,
+    span: Span,
+    deps: &'a Argument<'a>,
+    ctx: &LintContext,
+) -> Option<DependencyList<'a>> {
+    let Argument::Expression(arg1_expr) = deps else {
+        ctx.diagnostic(DependencyListNotAnArrayDiagnostic(CompactStr::from(callback), span));
+        return None;
+    };
+
+    if let Expression::Identifier(ident) = arg1_expr {
+        if ident.name == "undefined" {
+            return Some(HashSet::new());
+        }
+    }
 
     let Expression::ArrayExpression(array_expr) = arg1_expr else {
-        return HashSet::new();
+        ctx.diagnostic(DependencyListNotAnArrayDiagnostic(CompactStr::from(callback), span));
+        return None;
     };
 
     let mut result: DependencyList = HashSet::new();
@@ -252,13 +247,21 @@ fn collect_dependencies<'a>(deps: &'a Argument<'a>, ctx: &LintContext) -> Depend
                     result.insert(dependency);
                 }
             }
+            ArrayExpressionElement::SpreadElement(_) => {
+                ctx.diagnostic(DependencyListSpreadDiagnostic(
+                    CompactStr::from(callback.clone()),
+                    array_expr.span,
+                ));
+
+                return None;
+            }
             _ => {
                 println!("TODO(connect_dependencies) {:?}", elem);
             }
         }
     }
 
-    return result;
+    return Some(result);
 }
 
 // https://github.com/facebook/react/blob/fee786a057774ab687aff765345dd86fce534ab2/packages/eslint-plugin-react-hooks/src/ExhaustiveDeps.js#L1705
