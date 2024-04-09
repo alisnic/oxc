@@ -30,7 +30,9 @@ declare_oxc_lint!(
 );
 
 impl Rule for NoUnusedVars {
-    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {}
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        dbg!(node);
+    }
 }
 
 #[test]
