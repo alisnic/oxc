@@ -102,6 +102,16 @@ impl Rule for ExhaustiveDeps {
         let AstKind::CallExpression(call_expr) = node.kind() else { return };
         let Some(callback) = func_call_without_react_namespace(call_expr) else { return };
 
+        // Don't do nothing if hook is not inside a function
+        if !ctx
+            .semantic()
+            .nodes()
+            .iter_parents(node.id())
+            .any(|parent| matches!(parent.kind(), AstKind::Function(_)))
+        {
+            return;
+        }
+
         if HOOKS.contains(&callback) {
             let second_arg = call_expr.arguments.get(1);
 
@@ -124,7 +134,8 @@ impl Rule for ExhaustiveDeps {
             let declared_deps_option = if let Some(arg) = second_arg {
                 collect_dependencies(callback.clone(), call_expr.span, arg, ctx)
             } else {
-                Some(HashSet::new())
+                return;
+                // Some(HashSet::new())
             };
 
             let Some(declared_deps) = declared_deps_option else {
@@ -624,9 +635,7 @@ fn is_stable_value(node: &AstNode, name: &Atom) -> bool {
             };
 
             // dbg!(declaration);
-            if declaration.kind == VariableDeclarationKind::Const
-                && (init.is_literal() || matches!(init, Expression::ObjectExpression(_)))
-            {
+            if declaration.kind == VariableDeclarationKind::Const && init.is_literal() {
                 return true;
             };
 
