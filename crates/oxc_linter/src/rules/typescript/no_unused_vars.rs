@@ -1,3 +1,7 @@
+use oxc_ast::{
+    ast::{ExportNamedDeclaration, ModuleDeclaration},
+    AstKind,
+};
 use oxc_diagnostics::{
     miette::{self, Diagnostic},
     thiserror::{self, Error},
@@ -32,18 +36,33 @@ declare_oxc_lint!(
 impl Rule for NoUnusedVars {
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
         let symbols = ctx.semantic().symbols();
+        let nodes = ctx.semantic().nodes();
+        dbg!(node);
 
         match node.kind() {
             oxc_ast::AstKind::BindingIdentifier(ident) => {
+                dbg!(ident);
                 let Some(symbol_id) = ident.symbol_id.get() else {
                     return;
                 };
 
                 let references = symbols.get_resolved_reference_ids(symbol_id);
-
-                if references.is_empty() {
-                    ctx.diagnostic(NoUnusedVarsDiagnostic(ident.span));
+                if !references.is_empty() {
+                    return;
                 }
+
+                let is_exported = nodes.iter_parents(node.id()).any(|parent| {
+                    matches!(
+                        parent.kind(),
+                        AstKind::ModuleDeclaration(ModuleDeclaration::ExportNamedDeclaration(_))
+                    )
+                });
+
+                if is_exported {
+                    return;
+                };
+
+                ctx.diagnostic(NoUnusedVarsDiagnostic(ident.span));
                 // dbg!(references);
             }
             _ => {}
