@@ -50,13 +50,13 @@ impl Rule for NoUnusedVars {
                     return;
                 }
 
-                if let Some(interface) = find_parent_interface(node, ctx) {
-                    // TODO: interface implementations are not listed in get_resolved_reference_ids
-                    println!("HERE {:?}", interface);
-                    if interface_has_implementations(ctx, &interface.id.name) {
-                        return;
-                    }
+                // if let Some(interface) = find_parent_interface(node, ctx) {
+                // TODO: interface implementations are not listed in get_resolved_reference_ids
+                // println!("HERE {:?}", interface);
+                if interface_has_implementations(ctx, &ident.name) {
+                    return;
                 }
+                // }
 
                 let is_exported = nodes.iter_parents(node.id()).any(|parent| {
                     matches!(
