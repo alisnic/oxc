@@ -8,8 +8,8 @@ use oxc_span::Span;
 use crate::{context::LintContext, rule::Rule, AstNode};
 
 #[derive(Debug, Error, Diagnostic)]
-#[error("typescript-eslint(no-unused-vars):")]
-#[diagnostic(severity(warning), help(""))]
+#[error("typescript-eslint(no-unused-vars): test")]
+#[diagnostic(severity(warning), help("test"))]
 struct NoUnusedVarsDiagnostic(#[label] pub Span);
 
 #[derive(Debug, Default, Clone)]
@@ -31,7 +31,23 @@ declare_oxc_lint!(
 
 impl Rule for NoUnusedVars {
     fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
-        dbg!(node);
+        let symbols = ctx.semantic().symbols();
+
+        match node.kind() {
+            oxc_ast::AstKind::BindingIdentifier(ident) => {
+                let Some(symbol_id) = ident.symbol_id.get() else {
+                    return;
+                };
+
+                let references = symbols.get_resolved_reference_ids(symbol_id);
+
+                if references.is_empty() {
+                    ctx.diagnostic(NoUnusedVarsDiagnostic(ident.span));
+                }
+                // dbg!(references);
+            }
+            _ => {}
+        }
     }
 }
 
