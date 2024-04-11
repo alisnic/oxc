@@ -1,5 +1,5 @@
 use oxc_ast::{
-    ast::{ExportNamedDeclaration, ModuleDeclaration},
+    ast::{ModuleDeclaration, TSInterfaceDeclaration, TSTypeName},
     AstKind,
 };
 use oxc_diagnostics::{
@@ -41,7 +41,6 @@ impl Rule for NoUnusedVars {
 
         match node.kind() {
             oxc_ast::AstKind::BindingIdentifier(ident) => {
-                dbg!(ident);
                 let Some(symbol_id) = ident.symbol_id.get() else {
                     return;
                 };
@@ -49,6 +48,14 @@ impl Rule for NoUnusedVars {
                 let references = symbols.get_resolved_reference_ids(symbol_id);
                 if !references.is_empty() {
                     return;
+                }
+
+                if let Some(interface) = find_parent_interface(node, ctx) {
+                    // TODO: interface implementations are not listed in get_resolved_reference_ids
+                    println!("HERE {:?}", interface);
+                    if interface_has_implementations(ctx, &interface.id.name) {
+                        return;
+                    }
                 }
 
                 let is_exported = nodes.iter_parents(node.id()).any(|parent| {
@@ -68,6 +75,38 @@ impl Rule for NoUnusedVars {
             _ => {}
         }
     }
+}
+
+fn interface_has_implementations<'a>(ctx: &LintContext<'a>, name: &oxc_span::Atom<'a>) -> bool {
+    ctx.nodes().iter().any(|node| match node.kind() {
+        AstKind::Class(class) => {
+            let Some(impls) = &class.implements else {
+                return false;
+            };
+
+            dbg!(impls);
+
+            impls.iter().any(|implementation| {
+                let TSTypeName::IdentifierReference(iref) = &implementation.expression else {
+                    return false;
+                };
+
+                println!("{:?} {:?}", iref.name, name);
+                return iref.name == name;
+            })
+        }
+        _ => false,
+    })
+}
+
+fn find_parent_interface<'a>(
+    node: &AstNode<'a>,
+    ctx: &LintContext<'a>,
+) -> Option<&'a TSInterfaceDeclaration<'a>> {
+    ctx.nodes().iter_parents(node.id()).find_map(|parent| match parent.kind() {
+        AstKind::TSInterfaceDeclaration(iface) => Some(iface),
+        _ => None,
+    })
 }
 
 #[test]
