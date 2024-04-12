@@ -1,7 +1,9 @@
 use oxc_ast::{
-    ast::{ModuleDeclaration, TSInterfaceDeclaration, TSTypeName},
+    ast::{IdentifierReference, ModuleDeclaration, TSInterfaceDeclaration, TSTypeName},
     AstKind,
 };
+
+use oxc_allocator::Box as OBox;
 use oxc_diagnostics::{
     miette::{self, Diagnostic},
     thiserror::{self, Error},
@@ -87,9 +89,21 @@ fn interface_has_implementations<'a>(ctx: &LintContext<'a>, name: &oxc_span::Ato
             dbg!(impls);
 
             impls.iter().any(|implementation| {
-                let TSTypeName::IdentifierReference(iref) = &implementation.expression else {
+                let Some(iref) = type_name_identifier(&implementation.expression) else {
                     return false;
                 };
+
+                if let Some(Some(type_param)) =
+                    implementation.type_parameters.as_ref().map(|tp| tp.params.get(0))
+                {
+                    if let oxc_ast::ast::TSType::TSTypeReference(reference) = type_param {
+                        if let Some(iiref) = type_name_identifier(&reference.type_name) {
+                            if iiref.name == name {
+                                return true;
+                            };
+                        };
+                    }
+                }
 
                 println!("{:?} {:?}", iref.name, name);
                 return iref.name == name;
@@ -97,6 +111,15 @@ fn interface_has_implementations<'a>(ctx: &LintContext<'a>, name: &oxc_span::Ato
         }
         _ => false,
     })
+}
+
+fn type_name_identifier<'a>(
+    expression: &'a TSTypeName<'a>,
+) -> Option<&'a OBox<IdentifierReference<'a>>> {
+    match expression {
+        TSTypeName::IdentifierReference(iref) => Some(iref),
+        _ => None,
+    }
 }
 
 fn find_parent_interface<'a>(
