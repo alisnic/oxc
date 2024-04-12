@@ -1,5 +1,5 @@
 use oxc_ast::{
-    ast::{IdentifierReference, ModuleDeclaration, TSInterfaceDeclaration, TSTypeName},
+    ast::{IdentifierReference, ModuleDeclaration, TSInterfaceDeclaration, TSType, TSTypeName},
     AstKind,
 };
 
@@ -80,38 +80,59 @@ impl Rule for NoUnusedVars {
 }
 
 fn interface_has_implementations<'a>(ctx: &LintContext<'a>, name: &oxc_span::Atom<'a>) -> bool {
-    ctx.nodes().iter().any(|node| match node.kind() {
-        AstKind::Class(class) => {
-            let Some(impls) = &class.implements else {
+    ctx.nodes().iter().any(|node| {
+        let AstKind::Class(class) = node.kind() else { return false };
+
+        let Some(impls) = &class.implements else {
+            return false;
+        };
+
+        impls.iter().any(|implementation| {
+            let Some(iref) = type_name_identifier(&implementation.expression) else {
                 return false;
             };
 
-            dbg!(impls);
+            if iref.name == name {
+                return true;
+            };
 
-            impls.iter().any(|implementation| {
-                let Some(iref) = type_name_identifier(&implementation.expression) else {
-                    return false;
-                };
+            let Some(Some(type_param)) =
+                implementation.type_parameters.as_ref().map(|tp| tp.params.get(0))
+            else {
+                return false;
+            };
 
-                if let Some(Some(type_param)) =
-                    implementation.type_parameters.as_ref().map(|tp| tp.params.get(0))
-                {
-                    if let oxc_ast::ast::TSType::TSTypeReference(reference) = type_param {
-                        if let Some(iiref) = type_name_identifier(&reference.type_name) {
-                            if iiref.name == name {
-                                return true;
-                            };
-                        };
-                    }
-                }
-
-                println!("{:?} {:?}", iref.name, name);
-                return iref.name == name;
-            })
-        }
-        _ => false,
+            return type_references_name(type_param, name);
+        })
     })
 }
+
+fn type_references_name<'a>(type_param: &'a TSType<'a>, name: &str) -> bool {
+    let oxc_ast::ast::TSType::TSTypeReference(reference) = type_param else { return false };
+
+    let Some(iref) = type_name_identifier(&reference.type_name) else {
+        return false;
+    };
+
+    if iref.name == name {
+        return true;
+    };
+
+    if let Some(params) = &reference.type_parameters {
+        return params.params.iter().any(|p| type_references_name(p, name));
+    }
+
+    return false;
+}
+
+// fn param_implements_name(type_param: &oxc_ast::ast::TSType<'static>, name: &str) -> bool {
+//     match type_param {
+// oxc_ast::ast::TSType::TSTypeReference(ref)=> {
+
+//         },
+
+//     }
+// }
 
 fn type_name_identifier<'a>(
     expression: &'a TSTypeName<'a>,
